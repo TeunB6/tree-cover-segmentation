@@ -11,7 +11,26 @@ def download_data(save_path: Path | str, verbose: bool = True):
     if verbose:
         print(f"Downloading data from {DATA_URL} to {dir}...")
     # Get Zip file
-    response = requests.get(DATA_URL)
+    response = requests.get(DATA_URL, stream=True)
+    temp_file = save_path / "temp.zip"
+    total = int(response.headers.get("content-length", 0))
+    chunk_size = 8192
+    with open(temp_file, "wb") as f:
+        downloaded = 0
+        for chunk in response.iter_content(chunk_size=chunk_size):
+            if chunk:
+                f.write(chunk)
+                downloaded += len(chunk)
+                if verbose and total:
+                    done = int(50 * downloaded / total)
+                    print(
+                        "\r[{}{}] {:.1f}%".format(
+                            "=" * done, " " * (50 - done), 100 * downloaded / total
+                        ),
+                        end="",
+                    )
+        if verbose and total:
+            print()
     if verbose:
         print("Download Status:", response.status_code)
     temp_file = save_path / "temp.zip"
