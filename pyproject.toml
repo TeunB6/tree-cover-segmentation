@@ -1,7 +1,7 @@
 [project]
-name = "tree-cover-segmentation"
+name = "single-tree-detection"
 version = "0.1.0"
-description = "Add your description here"
+description = "Neural network for single tree object detection using satellite and LIDAR data"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

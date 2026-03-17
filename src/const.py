@@ -1,1 +1,1 @@
-DATA_URL = "https://owncloud.gwdg.de/index.php/s/FLUCNVFe8sg0Qig/download"
+DATA_URL = "https://owncloud.gwdg.de/index.php/s/H6MsR0wVGRuPPl3/download"
