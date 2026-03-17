@@ -12,6 +12,7 @@ from rich.progress import (
 )
 
 from src.const import DATA_URL, DATA_PATH, DATA_HASH
+import shutil
 
 
 def download_data(save_path: Path | str, verbose: bool = True):
@@ -20,36 +21,37 @@ def download_data(save_path: Path | str, verbose: bool = True):
 
     temp_file = save_path / "temp.zip"
 
-    # Download and hash in one pass
-    response = requests.get(DATA_URL, stream=True)
-    response.raise_for_status()
+    if not temp_file.exists():
+        # Download and hash in one pass
+        response = requests.get(DATA_URL, stream=True)
+        response.raise_for_status()
 
-    total = int(response.headers.get("content-length", 0))
-    h = hashlib.sha256()
+        total = int(response.headers.get("content-length", 0))
+        h = hashlib.sha256()
 
-    with Progress(
-        "[progress.description]{task.description}",
-        BarColumn(),
-        DownloadColumn(),
-        TransferSpeedColumn(),
-        TimeRemainingColumn(),
-        disable=not verbose,
-    ) as progress:
-        task = progress.add_task("Downloading", total=total or None)
+        with Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            disable=not verbose,
+        ) as progress:
+            task = progress.add_task("Downloading", total=total or None)
 
-        with open(temp_file, "wb") as f:
-            for chunk in response.iter_content(chunk_size=1 << 20):
-                f.write(chunk)
-                h.update(chunk)
-                progress.advance(task, len(chunk))
+            with open(temp_file, "wb") as f:
+                for chunk in response.iter_content(chunk_size=1 << 20):
+                    f.write(chunk)
+                    h.update(chunk)
+                    progress.advance(task, len(chunk))
 
-    # Verify checksum
-    digest = h.hexdigest()
-    if digest != DATA_HASH:
-        temp_file.unlink()
-        raise ValueError(f"Hash mismatch: expected {DATA_HASH}, got {digest}")
-    if verbose:
-        print("Checksum verified.")
+        # Verify checksum
+        digest = h.hexdigest()
+        if digest != DATA_HASH:
+            temp_file.unlink()
+            raise ValueError(f"Hash mismatch: expected {DATA_HASH}, got {digest}")
+        if verbose:
+            print("Checksum verified.")
 
     # Recursively unzip
     _unzip_recursive(temp_file, save_path, verbose=verbose)
@@ -65,9 +67,8 @@ def _unzip_recursive(zip_path: Path, dest: Path, verbose: bool = True):
             continue
         if verbose:
             print(f"Unzipping nested: {extracted.relative_to(dest)}")
-        _unzip_recursive(extracted, extracted.parent, verbose=verbose)
+        _unzip_recursive(extracted, extracted.parent / extracted.stem, verbose=verbose)
         extracted.unlink()
-
 
 if __name__ == "__main__":
     download_data(DATA_PATH)
