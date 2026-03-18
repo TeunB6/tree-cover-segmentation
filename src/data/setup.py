@@ -78,9 +78,6 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
             out_path = PT_DATA_PATH / split
             out_path.mkdir(parents=True, exist_ok=True)
 
-            if out_path.joinpath(img_path.stem + ".pt").exists():
-                LOGGER.info(f"Data for {img_path.name} already exists, skipping.")
-                continue
             LOGGER.info(f"Processing image: {img_path.name}")
             label_path = (NEON_TREE_PATH / "annotations" / img_path.stem).with_suffix(
                 ".xml"
