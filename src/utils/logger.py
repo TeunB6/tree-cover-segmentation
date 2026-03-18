@@ -4,7 +4,7 @@ from datetime import datetime
 from io import StringIO
 from rich.console import Console
 from typing import Any
-from const import LOG_DIR
+
 
 
 class Logger:
@@ -28,7 +28,8 @@ class Logger:
         Returns:
             A configured logger instance
         """
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        logs_dir = Path(__file__).parent.parent.parent / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
         # Create logger.
         logger = logging.getLogger(name)
@@ -46,7 +47,7 @@ class Logger:
 
         # Main log file with detailed formatting.
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_file = LOG_DIR / f"{timestamp}.log"
+        log_file = logs_dir / f"{timestamp}.log"
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(detailed_formatter)
