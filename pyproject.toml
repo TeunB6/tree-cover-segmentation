@@ -13,4 +13,5 @@ dependencies = [
     "torchvision>=0.25.0",
     "xmltodict>=1.0.4",
     "imagecodecs>=2026.3.6",
+    "matplotlib>=3.10.8",
 ]
