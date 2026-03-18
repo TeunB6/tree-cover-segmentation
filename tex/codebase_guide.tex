@@ -132,6 +132,10 @@ you actually work with the dataset:
         enough.
   \item After unzipping, some directories are double-nested in a way that
         breaks any code that assumes a flat structure.
+  \item There are only around 20 source images, each very large. The model
+        trains on $400 \times 400$ pixel patches, so we need to extract many
+        such patches from each source image and save them individually. This
+        also dramatically expands the effective size of the training set.
   \item The raw images are GeoTIFF files. Converting them to PyTorch tensors
         takes several seconds per image. Doing this conversion on every training
         run would be prohibitively slow, so we do it once and save the result.
@@ -491,8 +495,8 @@ across the whole training set.
 
 \begin{filebox}{src/data/setup.py}
   The main preprocessing class. Reads raw TIFFs and XML annotations, combines
-  RGB and CHM channels, and saves everything to disk as \texttt{.pt} files for
-  fast loading during training.
+  RGB and CHM channels, extracts $400 \times 400$ crops, and saves each crop
+  as a \texttt{.pt} file for fast loading during training.
 \end{filebox}
 
 \subsection{Why preprocess and cache?}
@@ -511,6 +515,15 @@ ask for a \texttt{SetupNeonTreeData} object.
 
 \subsection{The preprocessing loop}
 
+The dataset contains around 20 source images, each capturing a large plot area
+at high resolution. These are far bigger than the $400 \times 400$ pixel
+patches the model will train on. Rather than loading a huge image and cropping
+at training time (which wastes I/O bandwidth re-reading the same source
+repeatedly), setup extracts all crops up front and saves each one as its own
+\texttt{.pt} file. This also means the number of training examples is no
+longer limited by the number of source images -- we can extract as many
+non-overlapping (or overlapping) patches as the source images allow.
+
 For each RGB image in the training or evaluation split, the code:
 
 \begin{enumerate}
@@ -525,9 +538,21 @@ For each RGB image in the training or evaluation split, the code:
   \item Concatenates RGB and CHM along the channel dimension, producing a
         4-channel tensor of shape \texttt{(4, H, W)}.
   \item Parses the bounding boxes from the XML annotation file.
-  \item Saves the \texttt{(image\_tensor, bounding\_boxes)} pair to a
-        \texttt{.pt} file.
+  \item Extracts $400 \times 400$ crops from the full image. For each crop, the
+        bounding boxes are filtered and clipped to the crop window: boxes that
+        fall entirely outside the window are discarded, and boxes that overlap
+        the edge are clipped to the boundary.
+  \item Saves each \texttt{(crop\_tensor, cropped\_bounding\_boxes)} pair as a
+        separate \texttt{.pt} file, named by source image and crop index.
 \end{enumerate}
+
+\begin{intuition}
+  Doing the crop-and-clip step at setup time rather than training time is what
+  makes this approach work. At training time, the \texttt{Dataset} class simply
+  loads a file and gets back a correctly sized image with correctly adjusted
+  annotations, with no further geometric computation needed. The expensive work
+  -- file I/O, coordinate arithmetic, box filtering -- happens exactly once.
+\end{intuition}
 
 \subsection{Merging RGB and CHM}
 
@@ -583,9 +608,12 @@ produce any annotations, corrupting the training data for those samples.
 The extracted coordinates are wrapped in a \texttt{BoundingBoxes} object from
 Torchvision, which stores not just the coordinates but also the format
 (\texttt{"XYXY"} -- two corner points, as opposed to centre-plus-size) and
-the canvas size (the image dimensions). Torchvision's transform pipeline uses
-this metadata to update bounding box coordinates correctly when the image is
-cropped or flipped during augmentation.
+the canvas size (the image dimensions). Storing bounding boxes in this typed
+wrapper rather than as a plain tensor means that Torchvision's crop and flip
+transforms -- applied both during setup and at training time -- automatically
+update the coordinates to match whatever geometric operation was applied to the
+image. If the boxes were stored as a plain \texttt{torch.Tensor}, a crop would
+move the pixels but leave the coordinates pointing at the wrong locations.
 
 % =============================================================================
 \section{\texttt{src/dataset.py}}
@@ -600,7 +628,6 @@ class TreeImageDataset(Dataset):
         SetupNeonTreeData()   # ensure preprocessing has been run
         self.paths = sorted(input_dir.glob("*.pt"))
         self.transform = Compose(transforms) if transforms else Compose([
-            RandomCrop(400),
             Normalize(CHANNEL_MEANS, CHANNEL_STDEVS),
             RandomHorizontalFlip(),
             RandomVerticalFlip(),
@@ -621,19 +648,16 @@ in the ML primer will wrap. It satisfies PyTorch's Dataset contract by
 implementing \texttt{\_\_len\_\_} (how many examples?) and
 \texttt{\_\_getitem\_\_} (give me example number \texttt{idx}).
 
-Loading from \texttt{.pt} files means \texttt{\_\_getitem\_\_} is fast: a
-single \texttt{torch.load} call, then the transform pipeline. No image
-decoding, no XML parsing, no resizing -- all of that was done once during
-setup.
+Because \texttt{setup.py} has already extracted $400 \times 400$ crops and
+saved each one as its own \texttt{.pt} file, \texttt{\_\_getitem\_\_} is
+fast: one \texttt{torch.load} call returns an image that is already the right
+size with already-adjusted annotations. No image decoding, no XML parsing, no
+resizing, no cropping -- all of that happened once during setup.
 
 The default transform pipeline does the following to each example before
 returning it:
 
 \begin{enumerate}[nosep]
-  \item \textbf{RandomCrop(400)} -- cuts a random $400 \times 400$ pixel
-        window from the image. This is data augmentation: by showing the model
-        different crops of the same tile each time, we effectively multiply the
-        size of the training set without needing more labelled data.
   \item \textbf{Normalize} -- subtracts the channel means and divides by
         the standard deviations, shifting the pixel value distribution to be
         centred near zero. This is expected by the pre-trained model
@@ -642,20 +666,19 @@ returning it:
         the image left-right and/or top-bottom. Aerial imagery has no canonical
         orientation (north can point in any direction), so all four orientations
         are equally valid and showing the model all of them improves robustness.
-  \item \textbf{SanitizeBoundingBoxes} -- removes any bounding boxes that
-        ended up fully outside the cropped region after \texttt{RandomCrop},
-        and clamps any partially-outside boxes to the image edge. Without this
-        step, the model would receive annotations pointing to regions that do
-        not exist in the cropped image.
+  \item \textbf{SanitizeBoundingBoxes} -- cleans up any bounding boxes whose
+        coordinates became degenerate after a flip. This is mainly a safety
+        measure; correctly formed boxes should survive a flip unchanged in
+        terms of validity.
 \end{enumerate}
 
-Note that \texttt{SanitizeBoundingBoxes} only works correctly because the
-bounding boxes are stored as a Torchvision \texttt{BoundingBoxes} object
-(rather than a plain tensor). Torchvision's transforms know to treat
-\texttt{BoundingBoxes} specially, applying the same geometric transformation
-to the boxes as to the image. If the boxes were stored as a plain
-\texttt{torch.Tensor}, the \texttt{RandomCrop} would move the pixels but
-leave the box coordinates unchanged -- a silent, hard-to-detect bug.
+Note that there is no \texttt{RandomCrop} in this pipeline. That step has been
+moved entirely into \texttt{setup.py}. This is a deliberate trade-off: we lose
+the ability to see a different random crop of each source image on every
+training epoch (since the crops are now fixed), but we gain a much faster and
+simpler training loop. If we want more variety, we can simply extract more
+crops during setup -- overlapping ones, or crops taken at different random
+offsets -- without touching the training code at all.
 
 \begin{note}
   The constructor calls \texttt{SetupNeonTreeData()} without arguments at
