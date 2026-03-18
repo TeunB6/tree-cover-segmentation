@@ -6,7 +6,6 @@ from rich.console import Console
 from typing import Any
 
 
-
 class Logger:
     """Logging utility class for managing application logging."""
 
