@@ -8,6 +8,8 @@ dependencies = [
     "requests>=2.32.5",
     "black",
     "rich",
-    "torch",
-    "torchvision",
+    "torch>=2.10.0",
+    "scikit-image>=0.26.0",
+    "torchvision>=0.25.0",
+    "xmltodict>=1.0.4",
 ]

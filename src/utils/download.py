@@ -56,6 +56,8 @@ def download_data(save_path: Path | str, verbose: bool = True):
     # Recursively unzip
     _unzip_recursive(temp_file, save_path, verbose=verbose)
     temp_file.unlink()
+    
+    cleanup_files(save_path / "neon_tree" / "NeonTreeEvaluation")
 
 
 def _unzip_recursive(zip_path: Path, dest: Path, verbose: bool = True):
@@ -70,5 +72,18 @@ def _unzip_recursive(zip_path: Path, dest: Path, verbose: bool = True):
         _unzip_recursive(extracted, extracted.parent / extracted.stem, verbose=verbose)
         extracted.unlink()
 
-if __name__ == "__main__":
-    download_data(DATA_PATH)
+def cleanup_files(save_path: Path | str):
+    save_path = Path(save_path)
+    
+    def remove_nested(save_path: Path, target_name: str):
+        dir = save_path / target_name
+        nested_dir = dir / target_name
+        if nested_dir.exists():
+            for item in nested_dir.iterdir():
+                shutil.move(str(item), dir / item.name)
+            nested_dir.rmdir()
+    
+    # Move evaluation/evaluation to evaluation/ and remove
+    remove_nested(save_path, "evaluation")
+    remove_nested(save_path, "annotations")
+    
