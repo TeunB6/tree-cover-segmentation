@@ -114,13 +114,15 @@ class Trainer:
 
         with Progress() as progress:
             epoch_task = progress.add_task("[cyan]Training Epochs", total=num_epochs)
-            
+
             for epoch in range(num_epochs):
                 self.model.train()
 
                 total_loss = 0
-                batch_task = progress.add_task("[magenta]Training Batches", total=len(self.train_loader))
-                
+                batch_task = progress.add_task(
+                    "[magenta]Training Batches", total=len(self.train_loader)
+                )
+
                 for batch in self.train_loader:
                     # Update model parameters based on the batch.
                     inputs, labels = batch[0].to(DEVICE), batch[1].to(DEVICE)
@@ -135,7 +137,7 @@ class Trainer:
 
                     self.history["train_loss"].append(loss.item())
                     total_loss += loss.item()
-                    
+
                     progress.update(batch_task, advance=1)
 
                 avg_loss = total_loss / len(self.train_loader)
@@ -146,7 +148,7 @@ class Trainer:
                 progress.update(
                     epoch_task,
                     advance=1,
-                    description=f"[cyan]Epoch {epoch+1}/{num_epochs} | Train Loss: {avg_loss:.4f} | Eval Loss: {eval_loss:.4f}"
+                    description=f"[cyan]Epoch {epoch+1}/{num_epochs} | Train Loss: {avg_loss:.4f} | Eval Loss: {eval_loss:.4f}",
                 )
 
                 if early_stopping:
@@ -156,11 +158,13 @@ class Trainer:
                         best_model_state = copy.deepcopy(self.model.state_dict())
                     else:
                         epochs_no_improve += 1
-                        LOGGER.info(f"No improvement in validation loss for {epochs_no_improve} epochs.")
+                        LOGGER.info(
+                            f"No improvement in validation loss for {epochs_no_improve} epochs."
+                        )
 
                     if epochs_no_improve >= patience:
                         panel = Panel(
-                        f"[bold red]Early stopping triggered after {epochs_no_improve+1} epochs without improvement![/bold red]"
+                            f"[bold red]Early stopping triggered after {epochs_no_improve+1} epochs without improvement![/bold red]"
                         )
                         LOGGER.log_and_print(panel)
                         break
@@ -169,9 +173,7 @@ class Trainer:
             # If early stopping occurs, set the best model weights before the
             # end of training.
             self.model.load_state_dict(best_model_state)
-            LOGGER.log_and_print(
-                "Restored the best model weights from early stopping."
-            )
+            LOGGER.log_and_print("Restored the best model weights from early stopping.")
 
     def evaluate(
         self,
@@ -214,9 +216,7 @@ class Trainer:
 
         return total_loss / len(loader)
 
-    def plot_history(
-        self, show: bool = True, save_path: Optional[str] = None
-    ) -> None:
+    def plot_history(self, show: bool = True, save_path: Optional[str] = None) -> None:
         """Plot the training and evaluation loss history.
 
         Args:
