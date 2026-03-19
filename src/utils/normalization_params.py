@@ -1,5 +1,5 @@
 """
-Compute channel-wise mean and stdev for normalization transform
+Compute channel-wise mean and stdev and CHM max for normalization transform
 """
 
 from pathlib import Path
