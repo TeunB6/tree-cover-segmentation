@@ -1,11 +1,19 @@
 from src.utils.singleton import SingletonMeta
-from src.const import NEON_TREE_PATH, PT_DATA_PATH, LOGGER, CHM_MAX
+from src.const import NEON_TREE_PATH, PT_DATA_PATH, LOGGER, CHM_MAX, IMG_SIZE
 import xmltodict
 from torchvision.tv_tensors import BoundingBoxes
 import torch
 from skimage import io
 from skimage.transform import resize as sk_resize
+from torchvision.transforms.v2 import (
+    Compose,
+    RandomCrop,
+    RandomHorizontalFlip,
+    RandomVerticalFlip,
+    SanitizeBoundingBoxes,
+)
 from src.utils.transforms import ToTensor
+from rich.progress import track
 
 
 class SetupNeonTreeData(metaclass=SingletonMeta):
@@ -91,17 +99,46 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
                 continue
             rgb = self._load_image(img_path)
             chm = self._load_image(chm_path, target_size=rgb.shape[1:])
+            
+            # Normalize CHM to [0, 1] range and clamp negative values to 0
             chm = torch.clamp(chm, min=0) / CHM_MAX
-
             LOGGER.debug(f"{rgb.shape}, {chm.shape}")
             bounding_boxes = self._load_bounding_boxes(
                 label_path, canvas_size=rgb.shape[1:]
             )
             comb = torch.cat([rgb, chm], dim=0)
             LOGGER.debug(f"Combined tensor shape: {comb.shape}")
-
-            # save comb and bounding_boxes to pt_data
-            torch.save((comb, bounding_boxes), out_path / (img_path.stem + ".pt"))
+            
+            # Generate random samples and save to .pt
+            num_samples = comb.shape[1] * comb.shape[2] // (
+                IMG_SIZE[0] * IMG_SIZE[1]
+            )  # num samples proportional to image size
+            transforms = Compose(
+                [
+                    RandomCrop(400),
+                    RandomHorizontalFlip(),
+                    RandomVerticalFlip(),
+                    SanitizeBoundingBoxes(labels_getter = lambda x: x[1]),
+                ]
+            )
+            
+            if split == "train":
+                LOGGER.info(f"Generating {num_samples} samples from {img_path.name}...")
+                for s in track(range(num_samples), description=f"{split}:{img_path.stem}:samples"):
+                    # Get 400x400 random crop of the combined tensor and corresponding bounding boxes
+                    sample_comb, sample_boxes = transforms(
+                        (comb, bounding_boxes)
+                    )
+                    # save comb and bounding_boxes to pt_data
+                    torch.save(
+                        (sample_comb, sample_boxes),
+                        out_path / (img_path.stem + f"_{s}.pt"),
+                    )
+            else:
+                # For test split, save the full image and bounding boxes without augmentation
+                torch.save((comb, bounding_boxes), out_path / (img_path.stem + ".pt"))
+            
+            
         return out_path
 
     def _load_image(self, img_path, target_size: tuple[int, int] | None = None):
@@ -137,6 +174,7 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
         with open(label_path) as f:
             data = xmltodict.parse(f.read())
         # extract bounding boxes from data
+        bounding_boxes = []
         if isinstance(data["annotation"]["object"], list):
             bounding_boxes = [
                 [

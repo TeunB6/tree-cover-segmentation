@@ -1,14 +1,7 @@
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
-from torchvision.transforms.v2 import (
-    Normalize,
-    Compose,
-    RandomCrop,
-    SanitizeBoundingBoxes,
-    RandomHorizontalFlip,
-    RandomVerticalFlip,
-)
+from torchvision.transforms.v2 import Normalize, Compose
 from pathlib import Path
 from src.const import CHANNEL_MEANS, CHANNEL_STDEVS
 from src.data.setup import SetupNeonTreeData
@@ -30,15 +23,7 @@ class TreeImageDataset(Dataset):
         if transforms:
             self.transform = Compose(transforms)
         else:
-            self.transform = Compose(
-                [
-                    RandomCrop(400),
-                    Normalize(CHANNEL_MEANS, CHANNEL_STDEVS),
-                    RandomHorizontalFlip(),
-                    RandomVerticalFlip(),
-                    SanitizeBoundingBoxes(),
-                ]
-            )
+            self.transform = None
 
     def __len__(self) -> int:
         """
@@ -51,5 +36,6 @@ class TreeImageDataset(Dataset):
         Gets a specific entry in the dataset and returns the image and bounding boxes tensors.
         """
         file, boxes = torch.load(self.paths[idx])
-        file = self.transform(file)
+        if self.transform:
+            file = self.transform(file)
         return file, boxes
