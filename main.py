@@ -14,9 +14,9 @@ from random import choice
 from time import sleep
 
 # Training
-from src.models.trainer import Trainer
+from src.models.trainer import train_faster_rcnn, plot_history
 from torch.optim import AdamW
-from src.utils.loss import GeneralizedBoxIoULoss
+from src.utils.misc import GeneralizedBoxIoULoss, detection_collate_fn
 
 
 def data_inspection():
@@ -33,25 +33,25 @@ def data_inspection():
 
 
 def train_model():
-    model = FasterRCNNWrapper(num_classes=2, pretrained=False, pretrained_backbone=True)
+    fasterrcnn = FasterRCNNWrapper(num_classes=2, pretrained_backbone=True)
     train = TreeImageDataset(split="train")
     test = TreeImageDataset(split="test")
     val = TreeImageDataset(split="val")
 
-    trainer = Trainer(
-        model=model._model,
+    history = train_faster_rcnn(
+        wrapper=fasterrcnn,
         train_data=train,
         val_data=val,
         test_data=test,
-        batch_size=64,
-    )
-
-    trainer.train(
         num_epochs=10,
         criterion=GeneralizedBoxIoULoss,
         optimizer=AdamW,
         early_stopping=True,
+        patience=3,
     )
+    
+    plot_history(history)
+    
 
 
 def main():
