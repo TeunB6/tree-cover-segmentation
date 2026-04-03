@@ -52,7 +52,7 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
             Path to the directory containing serialized .pt samples for the
             requested split.
         """
-        if PT_DATA_PATH.exists() and not force_overwrite:
+        if (PT_DATA_PATH / split).exists() and not force_overwrite:
             # load data from pt_data
             return PT_DATA_PATH / split
         else:
@@ -60,7 +60,7 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
             PT_DATA_PATH.mkdir(parents=True, exist_ok=True)
             return self.create_split(split)
 
-    def create_split(self, split: str):  # TODO: Add CHM and Hyperspectral data
+    def create_split(self, split: str):  # TODO: Add Hyperspectral data
         """Create a processed split from raw imagery and annotations.
 
         For each RGB image in the selected raw split, this method loads the
@@ -134,7 +134,17 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
                 LOGGER.info(f"Generating {num_samples} samples from {img_path.name}...")
                 for s in range(num_samples):
                     # Get 400x400 random crop of the combined tensor and corresponding bounding boxes
-                    sample_comb, sample_boxes = transforms((comb, bounding_boxes))
+                    while True: # try until we find a valid sample in the image
+                        sample_comb, sample_boxes = transforms((comb, bounding_boxes))
+                        
+                        # Check if sample contains pixels then save, otherwise retry 
+                        if sample_comb.sum() == 0:
+                            LOGGER.debug(f"Sample {s} is empty, skipping.")
+                            continue
+                        else:
+                            break
+                        
+                    
                     LOGGER.debug(
                         f"Sample {s}: {sample_comb.shape}, {sample_boxes.shape}"
                     )
@@ -152,7 +162,7 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
                 # For test split, save the full image and bounding boxes without augmentation
                 io.imsave(out_path / "images" / (img_path.stem + ".tif"), comb.numpy())
                 np.save(
-                    out_path / "boxes" / (img_path.stem + "_boxes.npy"),
+                    out_path / "boxes" / (img_path.stem + ".npy"),
                     bounding_boxes.numpy(),
                 )
         return out_path
