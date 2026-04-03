@@ -38,7 +38,7 @@ class Trainer:
         self,
         model: nn.Module,
         train_data: Dataset,
-        dev_data: Dataset,
+        val_data: Dataset,
         test_data: Optional[Dataset] = None,
         batch_size: int = 32,
     ) -> None:
@@ -50,7 +50,13 @@ class Trainer:
             eval_data (Dataset): The evaluation data.
             batch_size (int, optional): The batch size. Defaults to 32.
         """
-        self.model = model.to(DEVICE)
+
+        # if possible/needed, move model to GPU before setting up data loaders to avoid potential VRAM issues with large models
+        if hasattr(model, "to"):
+            self.model = model.to(DEVICE)
+        else:
+            self.model = model
+
         self.batch_size = batch_size
         self.train_loader = DataLoader(
             train_data,
@@ -58,8 +64,8 @@ class Trainer:
             shuffle=True,
         )
 
-        self.dev_loader = DataLoader(
-            dev_data,
+        self.val_loader = DataLoader(
+            val_data,
             batch_size=batch_size,
             shuffle=False,
         )
@@ -197,11 +203,11 @@ class Trainer:
             LOGGER.warning(
                 "Test loader is not available. Evaluating on dev set instead."
             )
-            loader = self.dev_loader
+            loader = self.val_loader
         elif use_test and self.test_loader is not None:
             loader = self.test_loader
         else:
-            loader = self.dev_loader
+            loader = self.val_loader
 
         with torch.no_grad():
             for batch in loader:

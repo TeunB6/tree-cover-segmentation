@@ -8,29 +8,33 @@ import numpy as np
 
 from src.const import PT_DATA_PATH, LOGGER
 
-def view_image_with_boxes_from_name(
-    name: str, split: str = "train"
-) -> None:
+
+def view_image_with_boxes_from_name(name: str, split: str = "train") -> None:
     bb_path = PT_DATA_PATH / split / "boxes" / f"{name}.npy"
     img_path = PT_DATA_PATH / split / "images" / f"{name}.tif"
     boxes = torch.from_numpy(np.load(bb_path))
     image = torch.from_numpy(io.imread(img_path))
-    
+
     bounding_boxes = BoundingBoxes(boxes, format="XYXY", canvas_size=image.shape[:2])
-    
+
     view_image_with_boxes(image, bounding_boxes)
-    
+
 
 def view_image_with_boxes(
     image: torch.Tensor,
     boxes: BoundingBoxes,
 ) -> None:
     LOGGER.debug(f"Plotting... Image shape: {image.shape}, Boxes shape: {boxes.shape}")
-    if image.shape[2] >= 3: # If the image has more than 3 channels, take only the first 3 (RGB)
-        rgb_image = image[:, :, :3]
-    if image.shape[2] == 4: # If the image has 4 channels, take the 4th channel as CHM and plot seperately
-        chm_image = image[:, :, 3]
-        
+    # Check CHW vs HWC format and convert to HWC if needed
+    if (
+        image.shape[0] == 4
+    ):  # CHW format TODO: Will break if we add more than 4 channels
+        image = image.permute(1, 2, 0)  # Convert to HWC for plotting
+
+    # Separate RGB and CHM channels
+    rgb_image = image[:, :, :3]  # First 3 channels are RGB
+    chm_image = image[:, :, 3]  # 4th channel is CH
+
     # Draw bounding boxes on the RGB image
     image_with_boxes = draw_bounding_boxes(
         rgb_image.permute(2, 0, 1),  # Convert to CxHxW format
@@ -38,7 +42,7 @@ def view_image_with_boxes(
         colors="red",
         width=2,
     )
-    
+
     # Create plot
     fig, axes = plt.subplots(1, 2 if image.shape[2] == 4 else 1, figsize=(12, 6))
     axes[0].imshow(image_with_boxes.permute(1, 2, 0))  # Convert back to HxWxC format

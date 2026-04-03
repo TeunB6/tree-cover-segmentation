@@ -134,17 +134,16 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
                 LOGGER.info(f"Generating {num_samples} samples from {img_path.name}...")
                 for s in range(num_samples):
                     # Get 400x400 random crop of the combined tensor and corresponding bounding boxes
-                    while True: # try until we find a valid sample in the image
+                    while True:  # try until we find a valid sample in the image
                         sample_comb, sample_boxes = transforms((comb, bounding_boxes))
-                        
-                        # Check if sample contains pixels then save, otherwise retry 
+
+                        # Check if sample contains pixels then save, otherwise retry
                         if sample_comb.sum() == 0:
                             LOGGER.debug(f"Sample {s} is empty, skipping.")
                             continue
                         else:
                             break
-                        
-                    
+
                     LOGGER.debug(
                         f"Sample {s}: {sample_comb.shape}, {sample_boxes.shape}"
                     )

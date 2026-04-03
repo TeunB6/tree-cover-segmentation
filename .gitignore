@@ -1,6 +1,8 @@
 # Data
 /data
 
+# Weights
+/models
 # uv lockfile
 uv.lock
 
