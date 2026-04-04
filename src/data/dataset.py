@@ -99,6 +99,7 @@ class TreeImageDataset(Dataset):
         """
         return len(self.paths)
 
+    @property
     def data(self) -> list[tuple[Tensor, BoundingBoxes]]:
         """
         Loads all data into memory if eager loading is enabled.
