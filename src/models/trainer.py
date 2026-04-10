@@ -39,7 +39,6 @@ def train_faster_rcnn(
     val_data: Dataset,
     test_data: Dataset,
     num_epochs: int = 10,
-    criterion: Callable = GeneralizedBoxIoULoss,
     optimizer: Callable = optim.AdamW,
     early_stopping: bool = True,
     patience: int = 3,
@@ -52,7 +51,6 @@ def train_faster_rcnn(
         val_data (Dataset): The validation dataset.
         test_data (Dataset): The test dataset.
         num_epochs (int, optional): The number of epochs to train for. Defaults to 10.
-        criterion (Callable, optional): The loss function to use. Defaults to GeneralizedBoxIoULoss.
         optimizer (Callable, optional): The optimizer to use. Defaults to optim.AdamW.
         early_stopping (bool, optional): Whether to use early stopping. Defaults to True.
         patience (int, optional): The number of epochs with no improvement after which training will be stopped. Defaults to 3.
@@ -77,7 +75,6 @@ def train_faster_rcnn(
 
     # Initialize optimizer and loss function
     optim = optimizer(model.parameters())
-    criterion = criterion()
 
     history = {"train_loss": [], "eval_loss": []}
     best_model_state = copy.deepcopy(model.state_dict())
