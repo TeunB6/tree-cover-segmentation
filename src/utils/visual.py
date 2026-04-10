@@ -23,6 +23,7 @@ def view_image_with_boxes_from_name(name: str, split: str = "train") -> None:
 def view_image_with_boxes(
     image: torch.Tensor,
     boxes: BoundingBoxes,
+    save_path: Path | None = None,
 ) -> None:
     LOGGER.debug(f"Plotting... Image shape: {image.shape}, Boxes shape: {boxes.shape}")
     # Check CHW vs HWC format and convert to HWC if needed
@@ -45,11 +46,18 @@ def view_image_with_boxes(
 
     # Create plot
     fig, axes = plt.subplots(1, 2 if image.shape[2] == 4 else 1, figsize=(12, 6))
-    axes[0].imshow(image_with_boxes.permute(1, 2, 0))  # Convert back to HxWxC format
+    axes[0].imshow(
+        image_with_boxes.cpu().permute(1, 2, 0)
+    )  # Convert back to HxWxC format
     axes[0].set_title("RGB Image with Bounding Boxes")
     axes[0].axis("off")
     if image.shape[2] == 4:
-        axes[1].imshow(chm_image, cmap="viridis")
+        axes[1].imshow(chm_image.cpu(), cmap="viridis")
         axes[1].set_title("CHM Channel")
         axes[1].axis("off")
+    plt.tight_layout()
+    if save_path:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path)
+        LOGGER.info(f"Saved image with boxes to {save_path}")
     plt.show()
