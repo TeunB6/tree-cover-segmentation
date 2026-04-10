@@ -44,7 +44,6 @@ def train_model():
         val_data=val,
         test_data=test,
         num_epochs=10,
-        criterion=GeneralizedBoxIoULoss,
         optimizer=AdamW,
         early_stopping=True,
         patience=3,
