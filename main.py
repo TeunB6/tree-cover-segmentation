@@ -48,9 +48,8 @@ def train_model():
         early_stopping=True,
         patience=3,
     )
-    
+
     plot_history(history)
-    
 
 
 def main():

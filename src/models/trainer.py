@@ -33,6 +33,7 @@ plt.rcParams.update(
     }
 )
 
+
 def train_faster_rcnn(
     wrapper: FasterRCNNWrapper,
     train_data: Dataset,
@@ -100,7 +101,7 @@ def train_faster_rcnn(
         avg_train_loss = total_train_loss / len(train_loader)
         history["train_loss"].append(avg_train_loss)
         LOGGER.info(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.4f}")
-    
+
         # Evaluation phase
         model.eval()
         total_eval_loss = 0.0
@@ -115,29 +116,31 @@ def train_faster_rcnn(
         avg_eval_loss = total_eval_loss / len(val_loader)
         history["eval_loss"].append(avg_eval_loss)
         LOGGER.info(f"Epoch {epoch+1}/{num_epochs}, Eval Loss: {avg_eval_loss:.4f}")
-    
+
         # Check for improvement
         if early_stopping:
             if avg_eval_loss < best_eval_loss:
                 best_eval_loss = avg_eval_loss
                 best_model_state = copy.deepcopy(model.state_dict())
                 epochs_no_improve = 0
-                LOGGER.info(f"New best model found at epoch {epoch+1} with Eval Loss: {avg_eval_loss:.4f}")
+                LOGGER.info(
+                    f"New best model found at epoch {epoch+1} with Eval Loss: {avg_eval_loss:.4f}"
+                )
             else:
                 epochs_no_improve += 1
                 LOGGER.info(f"No improvement for {epochs_no_improve} epoch(s).")
                 if epochs_no_improve >= patience:
                     LOGGER.info("Early stopping triggered.")
                     break
-    
+
     # Load best model state before returning
     model.load_state_dict(best_model_state)
     return history
-    
 
 
-
-def plot_history(history: dict, show: bool = True, save_path: Optional[str] = None) -> None:
+def plot_history(
+    history: dict, show: bool = True, save_path: Optional[str] = None
+) -> None:
     """Plot the training and evaluation loss history.
 
     Args:
@@ -149,9 +152,7 @@ def plot_history(history: dict, show: bool = True, save_path: Optional[str] = No
     # Create x-axis values for train and eval loss based on the number of recorded losses.
     x_train = np.asarray(range(1, len(history["train_loss"]) + 1))
     x_eval = np.asarray(range(1, len(history["eval_loss"]) + 1))
-    x_train = x_train * (
-        len(history["eval_loss"]) / len(history["train_loss"])
-    )
+    x_train = x_train * (len(history["eval_loss"]) / len(history["train_loss"]))
 
     plt.figure()
     plt.plot(x_train, history["train_loss"], label="Train Loss")
@@ -167,6 +168,7 @@ def plot_history(history: dict, show: bool = True, save_path: Optional[str] = No
 
     if show:
         plt.show()
+
 
 def save_model(model, path: str | Path) -> None:
     """Save the model.
