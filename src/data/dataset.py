@@ -20,6 +20,7 @@ class TreeImageDataset(Dataset):
         self,
         split: Literal["train", "val", "test"] = "train",
         transforms: list | None = None,
+        force_lazy_loading: bool = False,
     ):
         """
         Tree Image Dataset. Expects a directory with an `images/` subdirectory of .tif files
@@ -70,6 +71,9 @@ class TreeImageDataset(Dataset):
                 self.loading_is_eager = False
         else:
             self.loading_is_eager = False  # Default to lazy loading if no GPU
+
+        if force_lazy_loading:
+            self.loading_is_eager = False
 
         LOGGER.info(
             f"VRAM: {vram:.2f} GB, Loading strategy: {'Eager' if self.loading_is_eager else 'Lazy'}"
@@ -122,6 +126,16 @@ class TreeImageDataset(Dataset):
         image = torch.from_numpy(io.imread(img_path)).to(
             device=self.device
         )  # Shape: (400, 400, 4)
+
+        # Handle NaN values in the image (replace with 0)
+        if torch.isnan(image).any():
+            LOGGER.warning(
+                f"Image {img_path.stem} contains NaN values. Replacing with 0."
+            )
+            image = torch.where(
+                torch.isnan(image), torch.tensor(0.0, device=self.device), image
+            )
+
         boxes = BoundingBoxes(
             np.load(box_path), format="XYXY", canvas_size=(400, 400)
         ).to(

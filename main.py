@@ -1,5 +1,5 @@
 from src.utils.download import download_data, cleanup_files
-from src.const import DATA_PATH, NEON_TREE_PATH, PT_DATA_PATH
+from src.const import DATA_PATH, NEON_TREE_PATH, LOGGER
 from src.data.setup import SetupNeonTreeData
 from src.data.dataset import TreeImageDataset
 from src.utils.visual import view_image_with_boxes
@@ -16,19 +16,17 @@ from time import sleep
 # Training
 from src.models.trainer import train_faster_rcnn, plot_history
 from torch.optim import AdamW
-from src.utils.misc import GeneralizedBoxIoULoss, detection_collate_fn
 
 
 def data_inspection():
     dataset = TreeImageDataset(split="train")
 
     # Plot some random samples from the dataset
-    for _ in range(4):
+    for _ in range(5):
         idx = choice(range(len(dataset)))
         image, targets = dataset[idx]
         boxes = targets["boxes"]
-        view_image_with_boxes(image, boxes)
-        sleep(1)
+        view_image_with_boxes(image, boxes, save_path=Path("out") / f"sample_{idx}.png")
         plt.close()
 
 
@@ -49,7 +47,18 @@ def train_model():
         patience=3,
     )
 
-    plot_history(history)
+    plot_history(history, save_path=Path("out") / "training_history.png")
+
+    # Save the best model state
+    fasterrcnn.save_model(
+        history["best_model_state"], save_path=Path("out") / "best_fasterrcnn.pth"
+    )
+    LOGGER.info(f"Best model saved to {Path('out') / 'best_fasterrcnn.pth'}")
+
+
+def evaluate_model():
+    # Get outputs from the model on the test set and visualize some predictions
+    pass
 
 
 def main():
@@ -64,6 +73,9 @@ def main():
         {
             "Data Inspection": data_inspection,
             "Train a Faster R-CNN model": train_model,
+            "Evaluate the trained model": lambda: print(
+                "Evaluation not implemented yet."
+            ),
         },
     )
 

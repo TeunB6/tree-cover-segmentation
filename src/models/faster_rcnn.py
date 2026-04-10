@@ -27,12 +27,21 @@ class FasterRCNNWrapper:
         pretrained_backbone: bool = True,
     ):
         # Initialize the Faster R-CNN model with the specified number of classes
+        # Anchor sizes scaled for 400x400 images at different FPN levels
+        # Sizes should increase with feature map level (lower resolution = larger receptive field)
         anchor_generator = AnchorGenerator(
-            sizes=((16, 32, 64, 128),), aspect_ratios=((0.5, 1.0, 2.0),)
+            sizes=(
+                (32, 64, 128),  # FPN level 0 (stride 4)
+                (64, 128, 256),  # FPN level 1 (stride 8)
+                (128, 256, 512),  # FPN level 2 (stride 16)
+                (256, 512, 1024),  # FPN level 3 (stride 32)
+                (512, 1024, 1024),  # FPN level pool (stride 64)
+            ),
+            aspect_ratios=((0.5, 1.0, 2.0),) * 5,
         )
 
         roi_pooler = MultiScaleRoIAlign(
-            featmap_names=["0", "1", "2", "3"], output_size=7, sampling_ratio=2
+            featmap_names=["0", "1", "2", "3", "pool"], output_size=7, sampling_ratio=2
         )
 
         self.model = FasterRCNN(
@@ -56,6 +65,7 @@ class FasterRCNNWrapper:
 
             # Adapt the backbone to n-channel input if necessary (e.g., for 4-channel input)
             if backbone.conv1.in_channels != n_channels:
+                old_weight = backbone.conv1.weight.data.clone()
                 backbone.conv1 = torch.nn.Conv2d(
                     n_channels,
                     backbone.conv1.out_channels,
@@ -68,13 +78,12 @@ class FasterRCNNWrapper:
                 # If using pretrained weights, we can copy the weights for the first 3 channels and initialize the new channel randomly
                 if pretrained_backbone:
                     with torch.no_grad():
-                        backbone.conv1.weight[:, :3, :, :] = resnet50(
-                            weights=ResNet50_Weights.DEFAULT
-                        ).conv1.weight
+                        backbone.conv1.weight[:, :3, :, :] = old_weight
                         if n_channels > 3:
+                            # Initialize new channels with small random values, scaled by 1/n_channels for stability
                             backbone.conv1.weight[:, 3:, :, :].normal_(
-                                0, 0.01
-                            )  # Initialize new channels with small random values
+                                0, 0.01 / n_channels
+                            )
 
         else:
             raise ValueError(f"Unsupported model name: {model_name}")
@@ -88,7 +97,21 @@ class FasterRCNNWrapper:
             in_channels_list=[256, 512, 1024, 2048],
             out_channels=256,
         )
+
+        # Log backbone output shapes
+        self._log_backbone_output_shape(backbone, n_channels)
+
         return backbone
+
+    def _log_backbone_output_shape(self, backbone: torch.nn.Module, n_channels: int):
+        """Create a dummy input and log the output shapes from the backbone."""
+        dummy_input = torch.randn(1, n_channels, 400, 400)
+        with torch.no_grad():
+            outputs = backbone(dummy_input)
+
+        LOGGER.info(f"Backbone output shapes for input {dummy_input.shape}:")
+        for key, value in outputs.items():
+            LOGGER.info(f"  Feature map '{key}': {value.shape}")
 
     def __getattr__(self, name):
         # Delegate attribute access to the underlying model

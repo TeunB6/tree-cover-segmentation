@@ -4,7 +4,7 @@ from rich.panel import Panel
 
 
 def cli_menu(question: str, options: dict[str, Callable]) -> None:
-    """Display a CLI menu for user to select assignments and functionalities.
+    """Display a CLI menu for user to select functionalities.
 
     Args:
         question (str): The question to be displayed.

@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from typing import Optional, Callable
 from pathlib import Path
 from rich.progress import Progress
+from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 from src.models.faster_rcnn import FasterRCNNWrapper
 from src.utils.misc import GeneralizedBoxIoULoss, detection_collate_fn
@@ -43,6 +44,8 @@ def train_faster_rcnn(
     optimizer: Callable = optim.AdamW,
     early_stopping: bool = True,
     patience: int = 3,
+    batch_transforms: Optional[Callable] = None,
+    sample_transforms: Optional[Callable] = None,
 ) -> dict:
     """Train a Faster R-CNN model.
 
@@ -65,66 +68,99 @@ def train_faster_rcnn(
 
     # Create data loaders
     train_loader = DataLoader(
-        train_data, batch_size=16, shuffle=True, collate_fn=detection_collate_fn
+        train_data, batch_size=1, shuffle=True, collate_fn=detection_collate_fn
     )
     val_loader = DataLoader(
-        val_data, batch_size=16, shuffle=False, collate_fn=detection_collate_fn
+        val_data, batch_size=1, shuffle=False, collate_fn=detection_collate_fn
     )
     test_loader = DataLoader(
         test_data, batch_size=16, shuffle=False, collate_fn=detection_collate_fn
     )
 
-    # Initialize optimizer and loss function
-    optim = optimizer(model.parameters())
+    # Initialize optimizer with lower learning rate for detection tasks
+    optim = optimizer(model.parameters(), lr=1e-4)
 
-    history = {"train_loss": [], "eval_loss": []}
+    history = {"train_loss": []}
     best_model_state = copy.deepcopy(model.state_dict())
-    best_eval_loss = float("inf")
+    best_val_map = 0.0
     epochs_no_improve = 0
+    nan_batch_count = 0
 
-    for epoch in track(range(num_epochs), description="Training..."):
+    # Initialize MeanAveragePrecision metric
+    map_metric = MeanAveragePrecision(
+        box_format="xyxy", iou_type="bbox", backend="faster_coco_eval"
+    )
+    map_metric = map_metric.to(DEVICE)
+
+    for epoch in track(range(num_epochs), description="Epochs:", total=num_epochs):
         # Training phase
         model.train()
         total_train_loss = 0.0
-        for images, targets in train_loader:
-            images = list(image.to(DEVICE) for image in images)
-            targets = [{k: v.to(DEVICE) for k, v in t.items()} for t in targets]
-
+        for batch_idx, (images, targets) in track(
+            enumerate(train_loader), description="Batches:", total=len(train_loader)
+        ):
             optim.zero_grad()
             loss_dict = model(images, targets)
+
             losses = sum(loss for loss in loss_dict.values())
+
+            if not torch.isfinite(losses):
+                LOGGER.error(
+                    f"Batch {batch_idx}: NaN/Inf in total loss: {losses}. Loss dict: {loss_dict}"
+                )
+                nan_batch_count += 1
+                optim.zero_grad()
+                continue
+
             losses.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optim.step()
 
             total_train_loss += losses.item()
 
         avg_train_loss = total_train_loss / len(train_loader)
         history["train_loss"].append(avg_train_loss)
-        LOGGER.info(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.4f}")
+        LOGGER.info(
+            f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.4f}, NaN batches: {nan_batch_count}"
+        )
 
-        # Evaluation phase
+        # Evaluation phase with mAP metric
         model.eval()
-        total_eval_loss = 0.0
+        map_metric.reset()
+
         with torch.no_grad():
             for images, targets in val_loader:
-                images = list(image.to(DEVICE) for image in images)
-                targets = [{k: v.to(DEVICE) for k, v in t.items()} for t in targets]
+                LOGGER.info(f"Evaluating batch with {len(images)} images.")
+                predictions = model(images)
 
-                loss_dict = model(images, targets)
-                losses = sum(loss for loss in loss_dict.values())
-                total_eval_loss += losses.item()
-        avg_eval_loss = total_eval_loss / len(val_loader)
-        history["eval_loss"].append(avg_eval_loss)
-        LOGGER.info(f"Epoch {epoch+1}/{num_epochs}, Eval Loss: {avg_eval_loss:.4f}")
+                # Update metric
+                map_metric.update(predictions, targets)
+
+        # Compute mAP (dict with "map", "map_50", "map_75", etc.)
+        metrics_dict = map_metric.compute()
+
+        # Initialize history keys on first compute, then append values
+        for key in metrics_dict.keys():
+            if key not in history:
+                history[key] = []
+            metric_value = (
+                metrics_dict[key].item()
+                if isinstance(metrics_dict[key], torch.Tensor)
+                else metrics_dict[key]
+            )
+            history[key].append(metric_value)
+
+        val_map = history["map"][-1]  # Use map@0.50:0.95 for early stopping
+        LOGGER.info(f"Epoch {epoch+1}/{num_epochs}, Val mAP@0.50:0.95: {val_map:.4f}")
 
         # Check for improvement
         if early_stopping:
-            if avg_eval_loss < best_eval_loss:
-                best_eval_loss = avg_eval_loss
+            if val_map > best_val_map:
+                best_val_map = val_map
                 best_model_state = copy.deepcopy(model.state_dict())
                 epochs_no_improve = 0
                 LOGGER.info(
-                    f"New best model found at epoch {epoch+1} with Eval Loss: {avg_eval_loss:.4f}"
+                    f"New best model found at epoch {epoch+1} with Val mAP@0.50:0.95: {val_map:.4f}"
                 )
             else:
                 epochs_no_improve += 1
@@ -141,7 +177,7 @@ def train_faster_rcnn(
 def plot_history(
     history: dict, show: bool = True, save_path: Optional[str] = None
 ) -> None:
-    """Plot the training and evaluation loss history.
+    """Plot the training loss and validation mAP metrics history.
 
     Args:
         show (bool, optional): Whether to show the plot immediately.
@@ -149,18 +185,45 @@ def plot_history(
         save_path (Optional[str], optional): The path to save the plot to.
                                                 Defaults to None.
     """
-    # Create x-axis values for train and eval loss based on the number of recorded losses.
+    # Create x-axis values for train and val metrics
     x_train = np.asarray(range(1, len(history["train_loss"]) + 1))
-    x_eval = np.asarray(range(1, len(history["eval_loss"]) + 1))
-    x_train = x_train * (len(history["eval_loss"]) / len(history["train_loss"]))
 
-    plt.figure()
-    plt.plot(x_train, history["train_loss"], label="Train Loss")
-    plt.plot(x_eval, history["eval_loss"], label="Eval Loss")
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.title("Training and Evaluation Loss History")
-    plt.legend()
+    # Get all metric keys (everything except train_loss)
+    metric_keys = [k for k in history.keys() if k != "train_loss"]
+
+    if not metric_keys:
+        LOGGER.warning("No metrics found in history to plot.")
+        return
+
+    x_val = np.asarray(range(1, len(history[metric_keys[0]]) + 1))
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+    # Plot 1: Training loss
+    ax1.plot(
+        x_train,
+        history["train_loss"],
+        label="Train Loss",
+        color="tab:blue",
+        linewidth=2,
+    )
+    ax1.set_xlabel("Epochs")
+    ax1.set_ylabel("Loss", color="tab:blue")
+    ax1.tick_params(axis="y", labelcolor="tab:blue")
+    ax1.set_title("Training Loss")
+    ax1.grid(True)
+
+    # Plot 2: All validation mAP metrics
+    for metric_key in metric_keys:
+        ax2.plot(x_val, history[metric_key], label=metric_key, linewidth=2)
+
+    ax2.set_xlabel("Epochs")
+    ax2.set_ylabel("mAP")
+    ax2.set_title("Validation mAP Metrics")
+    ax2.legend(loc="best")
+    ax2.grid(True)
+
+    plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path)
