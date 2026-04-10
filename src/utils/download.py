@@ -55,7 +55,6 @@ def download_data(save_path: Path | str, verbose: bool = True):
 
     # Recursively unzip
     _unzip_recursive(temp_file, save_path, verbose=verbose)
-    temp_file.unlink()
 
     cleanup_files(save_path / "neon_tree" / "NeonTreeEvaluation")
 
@@ -63,14 +62,11 @@ def download_data(save_path: Path | str, verbose: bool = True):
 def _unzip_recursive(zip_path: Path, dest: Path, verbose: bool = True):
     with ZipFile(zip_path, "r") as zf:
         zf.extractall(dest)
-
+    zip_path.unlink() # Remove the zip file after extraction
     for extracted in dest.rglob("*.zip"):
-        if extracted == zip_path:
-            continue
         if verbose:
             print(f"Unzipping nested: {extracted.relative_to(dest)}")
         _unzip_recursive(extracted, extracted.parent / extracted.stem, verbose=verbose)
-        extracted.unlink()
 
 
 def cleanup_files(save_path: Path | str):
