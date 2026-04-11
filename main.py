@@ -15,6 +15,7 @@ from pathlib import Path
 from random import choice
 
 from datetime import datetime
+import json
 
 # Training
 from src.models.trainer import train_faster_rcnn, plot_history, model_metrics
@@ -36,9 +37,10 @@ def data_inspection():
 def train_model(transforms: bool = True):
     fasterrcnn = FasterRCNNWrapper(num_classes=2, pretrained_backbone=True)
     train = TreeImageDataset(
-        split="train", transforms=get_train_transforms() if transforms else None,
+        split="train",
+        transforms=get_train_transforms() if transforms else None,
         force_lazy_loading=True,
-        #transform_inflate_factor=3 if transforms else 1,  # Inflate dataset by applying random transforms
+        # transform_inflate_factor=3 if transforms else 1,  # Inflate dataset by applying random transforms
     )
     test = TreeImageDataset(
         split="test", transforms=get_val_transforms() if transforms else None
@@ -58,12 +60,16 @@ def train_model(transforms: bool = True):
     )
 
     time_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    
+
     # Plot training history
     output_dir = Path("out") / "training_history"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     plot_history(history, save_path=output_dir / f"training_history_{time_stamp}.png")
+
+    # Save history as json for later analysis
+    with open(output_dir / f"training_history_{time_stamp}.json", "w") as f:
+        json.dump(history, f, indent=4)
 
     # Save the best model state
     output_dir = Path("out") / "models"
@@ -79,32 +85,44 @@ def evaluate_model():
     time_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     output_dir = Path("out") / "predictions" / time_stamp
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    
+
     # Find most recent model checkpoint
     model_dir = Path("out") / "models"
-    model_files = sorted(model_dir.glob("best_fasterrcnn_*.pth"), key=lambda x: x.stat().st_mtime, reverse=True)
+    model_files = sorted(
+        model_dir.glob("best_fasterrcnn_*.pth"),
+        key=lambda x: x.stat().st_mtime,
+        reverse=True,
+    )
     if not model_files:
-        LOGGER.error("No model checkpoints found in 'out/models'. Please train a model first.")
+        LOGGER.error(
+            "No model checkpoints found in 'out/models'. Please train a model first."
+        )
         return
     latest_model_path = model_files[0]
     LOGGER.info(f"Loading model from {latest_model_path}")
     fasterrcnn = FasterRCNNWrapper.load(latest_model_path)
     fasterrcnn.eval()
-    
+
     test = TreeImageDataset(split="test", transforms=get_val_transforms())
     model_metrics(test, fasterrcnn)
 
     predictions, targets = fasterrcnn.get_predictions(test)
-    
+
     LOGGER.info(f"Got predictions for {len(predictions)}/{len(targets)} test samples.")
     LOGGER.debug(f"Targets example: {targets[0]}")
-    
-    for idx, (image, targets) in track(enumerate(test), description="Visualizing predictions:", total=len(test)):
+
+    for idx, (image, targets) in track(
+        enumerate(test), description="Visualizing predictions:", total=len(test)
+    ):
         pred_boxes = predictions[idx]["boxes"]
         target_boxes = targets["boxes"]
-        view_prediction(image, pred_boxes, target_boxes, save_path=output_dir / f"prediction_{test.get_site_name(idx)}_{idx}.png", show=False)
-    
+        view_prediction(
+            image,
+            pred_boxes,
+            target_boxes,
+            save_path=output_dir / f"prediction_{test.get_site_name(idx)}_{idx}.png",
+            show=False,
+        )
 
 
 def main():
