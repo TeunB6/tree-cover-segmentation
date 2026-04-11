@@ -30,7 +30,7 @@ class TreeImageDataset(Dataset):
         and a `boxes/` subdirectory of .npy files sharing the same stems.
         Each .tif is a (4, 400, 400) float32 tensor (RGB + CHM, normalised to [0, 1]).
         Each .npy contains an (N, 4) float32 array of bounding boxes in XYXY pixel format.
-        
+
         Args:
             split (str): One of "train", "val", or "test" to specify the dataset split.
             transforms (list, optional): A list of torchvision transforms to apply jointly to images and boxes. Defaults to None.
@@ -128,7 +128,9 @@ class TreeImageDataset(Dataset):
             for img_path in track(
                 self.paths, description="Loading data:", total=len(self.paths)
             ):
-                for _ in range(self.transform_inflate_factor):  # Inflate dataset if factor > 1
+                for _ in range(
+                    self.transform_inflate_factor
+                ):  # Inflate dataset if factor > 1
                     self.data.append(self._load_data_point(img_path))
         return self._data
 
@@ -143,17 +145,16 @@ class TreeImageDataset(Dataset):
         image = torch.from_numpy(io.imread(img_path)).to(
             device=self.device
         )  # Shape: (400, 400, 4) (in most cases :( )
-        
+
         image = image.permute(2, 0, 1)  # Convert to (4, 400, 400)
 
-        # Check shape and pad to (N, 400, 400) if necessary #TODO: Move remaining data validation and cleaning done here to setup 
+        # Check shape and pad to (N, 400, 400) if necessary #TODO: Move remaining data validation and cleaning done here to setup
         if image.shape[1] != 400 or image.shape[2] != 400:
             LOGGER.warning(
                 f"Image {img_path.stem} has unexpected shape {image.shape}. Resizing to (400, 400)."
             )
             image = F.resize(image, (400, 400))  # Ensure image is 400x400
 
-        
         # Handle NaN values in the image (replace with 0)
         if torch.isnan(image).any():
             LOGGER.warning(
@@ -168,7 +169,6 @@ class TreeImageDataset(Dataset):
         ).to(
             device=self.device
         )  # Shape: (N, 4)
-
 
         if self.transform:
             image, boxes = self.transform(image, boxes)
@@ -193,7 +193,7 @@ class TreeImageDataset(Dataset):
             return self.data[idx]
         else:
             return self._load_data_point(self.paths[idx])
-        
+
     def get_site_name(self, idx: int) -> str:
         """
         Utility method to get the site name (stem of the filename) for a given index.

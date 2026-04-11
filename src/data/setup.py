@@ -60,7 +60,9 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
             PT_DATA_PATH.mkdir(parents=True, exist_ok=True)
             return self.create_split(split)
 
-    def create_split(self, split: str):  # TODO: Add Hyperspectral data
+    def create_split(
+        self, split: str, oversampling_coefficient: int = 3
+    ):  # TODO: Add Hyperspectral data
         """Create a processed split from raw imagery and annotations.
 
         For each RGB image in the selected raw split, this method loads the
@@ -70,6 +72,7 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
 
         Args:
             split: Dataset split name, typically "train" or "test".
+            oversampling_coefficient: Factor by which to inflate the dataset size through random cropping. The number of samples generated from each image is proportional to the image size multiplied by this coefficient.
 
         Returns:
             Path to the output directory containing processed .pt files.
@@ -120,7 +123,7 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
             # Generate random samples and save to .pt
             num_samples = (
                 comb.shape[1] * comb.shape[2] // (IMG_SIZE[0] * IMG_SIZE[1])
-            )  # num samples proportional to image size
+            ) * oversampling_coefficient  # num samples proportional to image size
             transforms = Compose(
                 [
                     RandomCrop(IMG_SIZE[0]),
