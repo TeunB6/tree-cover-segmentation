@@ -49,7 +49,6 @@ def train_model(transforms: bool = True):
         wrapper=fasterrcnn,
         train_data=train,
         val_data=val,
-        test_data=test,
         num_epochs=1,
         optimizer=AdamW,
         early_stopping=True,

@@ -3,6 +3,9 @@ from collections import OrderedDict
 from torchvision.models.detection import (
     FasterRCNN,
 )
+
+from torchvision.ops.boxes import nms
+
 from torch.utils.data import DataLoader, Dataset
 from src.utils.misc import detection_collate_fn
 from rich.progress import track
@@ -125,6 +128,24 @@ class FasterRCNNWrapper:
                 f"'FasterRCNNWrapper' object has no attribute '{name}'"
             )
     
+    def inference(self, images: list[torch.Tensor]) -> list[dict]:
+        self.model.to(DEVICE)
+        self.model.eval()
+        with torch.no_grad():
+            predictions = self.model(images)
+        
+        # non-max suppression
+        for pred in predictions:
+            boxes = pred["boxes"]
+            scores = pred["scores"]
+            labels = pred["labels"]
+            keep_indices = nms(boxes, scores, iou_threshold=0.3)
+            pred["boxes"] = boxes[keep_indices]
+            pred["scores"] = scores[keep_indices]
+            pred["labels"] = labels[keep_indices]
+            
+        return predictions
+    
     def get_predictions(self, data: Dataset) -> tuple[list, list]:
         loader = DataLoader(data, batch_size=16, shuffle=False, collate_fn=detection_collate_fn)
         self.model.to(DEVICE)
@@ -133,7 +154,7 @@ class FasterRCNNWrapper:
         full_targets = []
         with torch.no_grad():
             for images, targets in track(loader, description="Getting predictions:", total=len(loader)):
-                batch_preds = self.model(images)
+                batch_preds = self.inference(images)
                 predictions.extend(batch_preds)
                 full_targets.extend(targets)
         return predictions, full_targets
