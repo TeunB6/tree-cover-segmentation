@@ -150,10 +150,6 @@ class SatSlideMix(torch.nn.Module):
         assert img.dim() == 3, "SatSlideMix expects a single image: [C, H, W]"
         _, H, W = img.shape
 
-        LOGGER.debug(
-            f"SatSlideMix: label before roll: {label if label is not None and len(label) > 0 else 'N/A'}, type: {type(label) if label is not None else 'N/A'}"
-        )
-
         if self.direction in ("horizontal", "both"):
             shift_w = random.randint(1, int(W * self.max_shift))
             img = torch.roll(img, shifts=shift_w, dims=2)  # dim 2 = width
@@ -171,9 +167,6 @@ class SatSlideMix(torch.nn.Module):
                 )  # adjust y-coords
 
         if label is not None:
-            LOGGER.debug(
-                f"SatSlideMix: label after roll: {label if label is not None  and len(label) > 0 else 'N/A'}, type: {type(label) if label is not None else 'N/A'}"
-            )
             return img, label
         return img
 
@@ -300,13 +293,13 @@ def get_train_transforms():
                     IdentityTransform(),
                 ],
                 weights=[
-                    1, # rotate
-                    1, # hflip
-                    1, # vflip
-                    3, # affine
-                    3, # blur
-                    3, # slidemix 
-                    3, # identity
+                    1,  # rotate
+                    1,  # hflip
+                    1,  # vflip
+                    3,  # affine
+                    3,  # blur
+                    3,  # slidemix
+                    3,  # identity
                 ],
                 debug=False,
             ),

@@ -11,12 +11,23 @@ import numpy as np
 
 from src.const import PT_DATA_PATH, LOGGER
 
+
 def print_table(data: dict, title: str = "Table") -> None:
     table = Table(title=title)
     for key in data.keys():
-        table.add_column(key, justify="center", header_style="cyan", )
-    table.add_row(*[str(value.item() if isinstance(value, torch.Tensor) else value) for value in data.values()])
+        table.add_column(
+            key,
+            justify="center",
+            header_style="cyan",
+        )
+    table.add_row(
+        *[
+            str(value.item() if isinstance(value, torch.Tensor) else value)
+            for value in data.values()
+        ]
+    )
     LOGGER.log_and_print(table)
+
 
 def view_image_with_boxes_from_name(name: str, split: str = "train") -> None:
     bb_path = PT_DATA_PATH / split / "boxes" / f"{name}.npy"
@@ -75,12 +86,19 @@ def view_image_with_boxes(
     else:
         plt.close(fig)
 
-def view_prediction(image: torch.Tensor, pred_boxes: BoundingBoxes, target_boxes: BoundingBoxes, save_path: Path | None = None, show: bool = True) -> None:
+
+def view_prediction(
+    image: torch.Tensor,
+    pred_boxes: BoundingBoxes,
+    target_boxes: BoundingBoxes,
+    save_path: Path | None = None,
+    show: bool = True,
+) -> None:
     # Draw predicted boxes in red and ground truth boxes in blue
-    if image.shape[0] == 4: 
-        rgb_image = image[:3, :, :] # Use RGB channels and convert to HWC for plotting
-        chm_image = image[3, :, :] # CHM channel
-    
+    if image.shape[0] == 4:
+        rgb_image = image[:3, :, :]  # Use RGB channels and convert to HWC for plotting
+        chm_image = image[3, :, :]  # CHM channel
+
     rgb_image_with_boxes = draw_bounding_boxes(
         rgb_image,
         boxes=pred_boxes,
@@ -93,19 +111,20 @@ def view_prediction(image: torch.Tensor, pred_boxes: BoundingBoxes, target_boxes
         colors="blue",
         width=2,
     )
-    
-    
+
     # Create plot with RGB and CHM side by side
     fig, axes = plt.subplots(1, 2 if image.shape[0] == 4 else 1, figsize=(12, 6))
-    axes[0].imshow(rgb_image_with_boxes.cpu().permute(1, 2, 0))  # Convert back to HxWxC format
+    axes[0].imshow(
+        rgb_image_with_boxes.cpu().permute(1, 2, 0)
+    )  # Convert back to HxWxC format
     axes[0].set_title("Predicted Boxes (Red) vs Ground Truth Boxes (Blue)")
     axes[0].axis("off")
-    
+
     if image.shape[0] == 4:
         axes[1].imshow(chm_image.cpu(), cmap="viridis")
         axes[1].set_title("CHM Channel")
         axes[1].axis("off")
-    
+
     if save_path:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path)
@@ -114,6 +133,7 @@ def view_prediction(image: torch.Tensor, pred_boxes: BoundingBoxes, target_boxes
         plt.show()
     else:
         plt.close(fig)
+
 
 def view_image(
     image: torch.Tensor,

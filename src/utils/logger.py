@@ -32,11 +32,11 @@ class Logger:
 
         # Create logger.
         logger = logging.getLogger(name)
-        
+
         # Skip if logger already has handlers (already configured)
         if logger.handlers:
             return logger
-        
+
         logger.setLevel(logging.DEBUG)
         logger.propagate = False
 
