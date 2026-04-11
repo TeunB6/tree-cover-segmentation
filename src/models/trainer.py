@@ -74,7 +74,6 @@ def train_faster_rcnn(
         val_data, batch_size=16, shuffle=False, collate_fn=detection_collate_fn
     )
 
-    # Initialize optimizer with lower learning rate for detection tasks
     optim = optimizer(model.parameters(), lr=1e-4)
 
     history = {"train_loss": []}
@@ -129,10 +128,8 @@ def train_faster_rcnn(
             for images, targets in val_loader:
                 predictions = model(images)
 
-                # Update metric
                 map_metric.update(predictions, targets)
 
-        # Compute mAP (dict with "map", "map_50", "map_75", etc.)
         metrics_dict = map_metric.compute()
 
         # Initialize history keys on first compute, then append values
@@ -197,7 +194,7 @@ def plot_history(
 
     x_val = np.asarray(range(1, len(history[metric_keys[0]]) + 1))
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6), layout="constrained")
 
     # Plot 1: Training loss
     ax1.plot(
@@ -208,8 +205,8 @@ def plot_history(
         linewidth=2,
     )
     ax1.set_xlabel("Epochs")
-    ax1.set_ylabel("Loss", color="tab:blue")
-    ax1.tick_params(axis="y", labelcolor="tab:blue")
+    ax1.set_ylabel("Loss")
+    ax1.tick_params(axis="y")
     ax1.set_title("Training Loss")
     ax1.grid(True)
 
@@ -220,13 +217,12 @@ def plot_history(
     ax2.set_xlabel("Epochs")
     ax2.set_ylabel("mAP")
     ax2.set_title("Validation mAP Metrics")
-    ax2.legend(loc="best", bbox_to_anchor=(1.05, 1), borderaxespad=0)
+    fig.legend(loc="outside right upper", bbox_to_anchor=(1.05, 1), borderaxespad=0)
     ax2.grid(True)
 
-    plt.tight_layout()
-
     if save_path:
-        plt.savefig(save_path)
+        # Keep outside-axes elements (e.g., figure-level legend) inside the output image.
+        fig.savefig(save_path, bbox_inches="tight", pad_inches=0.2)
         LOGGER.info(f"Training history plot saved to {save_path}")
 
     if show:

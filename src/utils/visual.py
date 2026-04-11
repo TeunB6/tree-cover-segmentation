@@ -98,7 +98,7 @@ def view_prediction(image: torch.Tensor, pred_boxes: BoundingBoxes, target_boxes
     # Create plot with RGB and CHM side by side
     fig, axes = plt.subplots(1, 2 if image.shape[0] == 4 else 1, figsize=(12, 6))
     axes[0].imshow(rgb_image_with_boxes.cpu().permute(1, 2, 0))  # Convert back to HxWxC format
-    axes[0].set_title("Predicted Boxes (Red) vs Ground Truth Boxes (Green)")
+    axes[0].set_title("Predicted Boxes (Red) vs Ground Truth Boxes (Blue)")
     axes[0].axis("off")
     
     if image.shape[0] == 4:

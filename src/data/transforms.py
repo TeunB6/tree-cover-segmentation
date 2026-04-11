@@ -306,7 +306,7 @@ def get_train_transforms():
                     3, # affine
                     3, # blur
                     3, # slidemix 
-                    12, # identity
+                    3, # identity
                 ],
                 debug=False,
             ),

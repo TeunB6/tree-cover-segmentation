@@ -23,12 +23,19 @@ class TreeImageDataset(Dataset):
         split: Literal["train", "val", "test"] = "train",
         transforms: list | None = None,
         force_lazy_loading: bool = False,
+        transform_inflate_factor: int = 1,
     ):
         """
         Tree Image Dataset. Expects a directory with an `images/` subdirectory of .tif files
         and a `boxes/` subdirectory of .npy files sharing the same stems.
         Each .tif is a (4, 400, 400) float32 tensor (RGB + CHM, normalised to [0, 1]).
         Each .npy contains an (N, 4) float32 array of bounding boxes in XYXY pixel format.
+        
+        Args:
+            split (str): One of "train", "val", or "test" to specify the dataset split.
+            transforms (list, optional): A list of torchvision transforms to apply jointly to images and boxes. Defaults to None.
+            force_lazy_loading (bool, optional): If True, forces lazy loading regardless of VRAM. Defaults to False.
+            transform_inflate_factor (int, optional): Factor by which to inflate the dataset size through transforms. Only used if transforms are provided and if loading is eager. Defaults to 1 (no inflation).
         """
         self.dirs = (
             SetupNeonTreeData()
@@ -66,6 +73,7 @@ class TreeImageDataset(Dataset):
 
         # Set device and loading strategy based on available VRAM
         self.device = DEVICE
+        self.transform_inflate_factor = transform_inflate_factor
 
         vram = 0
         # Check available VRAM to set eager/lazy loading
@@ -120,7 +128,8 @@ class TreeImageDataset(Dataset):
             for img_path in track(
                 self.paths, description="Loading data:", total=len(self.paths)
             ):
-                self.data.append(self._load_data_point(img_path))
+                for _ in range(self.transform_inflate_factor):  # Inflate dataset if factor > 1
+                    self.data.append(self._load_data_point(img_path))
         return self._data
 
     def _load_data_point(self, path: Path) -> tuple[Tensor, BoundingBoxes]:
