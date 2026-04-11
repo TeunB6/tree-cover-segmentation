@@ -36,7 +36,9 @@ def data_inspection():
 def train_model(transforms: bool = True):
     fasterrcnn = FasterRCNNWrapper(num_classes=2, pretrained_backbone=True)
     train = TreeImageDataset(
-        split="train", transforms=get_train_transforms() if transforms else None
+        split="train", transforms=get_train_transforms() if transforms else None,
+        force_lazy_loading=True,
+        #transform_inflate_factor=3 if transforms else 1,  # Inflate dataset by applying random transforms
     )
     test = TreeImageDataset(
         split="test", transforms=get_val_transforms() if transforms else None
@@ -49,10 +51,10 @@ def train_model(transforms: bool = True):
         wrapper=fasterrcnn,
         train_data=train,
         val_data=val,
-        num_epochs=1,
+        num_epochs=50,
         optimizer=AdamW,
         early_stopping=True,
-        patience=3,
+        patience=4,
     )
 
     time_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
