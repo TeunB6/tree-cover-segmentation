@@ -10,13 +10,12 @@ import matplotlib.pyplot as plt
 from typing import Optional, Callable
 from pathlib import Path
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
-from torchvision.ops import generalized_box_iou
+from torchvision.ops import box_iou, generalized_box_iou
 
 from src.models.faster_rcnn import FasterRCNNWrapper
 from src.utils.misc import detection_collate_fn
 
 from src.utils.visual import print_table
-
 
 # Define plotting style.
 plt.style.use("seaborn-v0_8-dark-palette")
@@ -76,7 +75,7 @@ def train_faster_rcnn(
 
     optim = optimizer(model.parameters(), lr=1e-4)
 
-    history = {"train_loss": []}
+    history = {"train_loss": [], "val_iou": []}
     best_model_state = copy.deepcopy(model.state_dict())
     best_val_map = 0.0
     epochs_no_improve = 0
@@ -120,17 +119,32 @@ def train_faster_rcnn(
             f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.4f}, NaN batches: {nan_batch_count}"
         )
 
-        # Evaluation phase with mAP metric
-        model.eval()
+        # Evaluation phase with mAP and IoU metrics
+        model.eval()  # NOTE maybe we shouldn't do this, as we can not evaluate validation set loss to check over fitting. Disabling has big leakage risks due to batch norm and dropout
         map_metric.reset()
+        total_iou = 0.0
+        total_iou_targets = 0
 
         with torch.no_grad():
             for images, targets in val_loader:
                 predictions = model(images)
 
                 map_metric.update(predictions, targets)
+                for prediction, target in zip(predictions, targets):
+                    target_boxes = target["boxes"]
+                    total_iou_targets += target_boxes.shape[0]
+
+                    prediction_boxes = prediction["boxes"]
+                    if prediction_boxes.numel() == 0 or target_boxes.numel() == 0:
+                        continue
+
+                    iou_matrix = box_iou(prediction_boxes, target_boxes)
+                    total_iou += iou_matrix.max(dim=0).values.sum().item()
 
         metrics_dict = map_metric.compute()
+        metrics_dict["val_iou"] = (
+            total_iou / total_iou_targets if total_iou_targets > 0 else 0.0
+        )
 
         # Initialize history keys on first compute, then append values
         for key in metrics_dict.keys():
@@ -144,7 +158,10 @@ def train_faster_rcnn(
             history[key].append(metric_value)
 
         val_map = history["map"][-1]  # Use map@0.50:0.95 for early stopping
-        LOGGER.info(f"Epoch {epoch+1}/{num_epochs}, Val mAP@0.50:0.95: {val_map:.4f}")
+        val_iou = history["val_iou"][-1]
+        LOGGER.info(
+            f"Epoch {epoch+1}/{num_epochs}, Val mAP@0.50:0.95: {val_map:.4f}, Val IoU: {val_iou:.4f}"
+        )
 
         # Check for improvement
         if early_stopping:
@@ -164,10 +181,10 @@ def train_faster_rcnn(
 
     # Load best model state before returning
     model.load_state_dict(best_model_state)
-    
+
     # Final evaluation on val set with best model
     model_metrics(val_data, wrapper)
-    
+
     return history
 
 
@@ -228,24 +245,25 @@ def plot_history(
     if show:
         plt.show()
 
+
 def model_metrics(test: Dataset, wrapper: FasterRCNNWrapper) -> None:
     # Get outputs from the model on the test set and visualize some predictions
     output_dir = Path("out") / "predictions"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     predictions, targets = wrapper.get_predictions(test)
-    
+
     # mAP
     map_metric = MeanAveragePrecision(
         box_format="xyxy", iou_type="bbox", backend="faster_coco_eval"
     )
     map_metric = map_metric.to(DEVICE)
-    
+
     map_metric.update(predictions, targets)
     metrics_dict = map_metric.compute()
-    
+
     print_table(metrics_dict, title="Test Set Evaluation Metrics")
-    
+
     # IoU distribution
     iou_values = []
     for pred, target in zip(predictions, targets):
@@ -253,10 +271,13 @@ def model_metrics(test: Dataset, wrapper: FasterRCNNWrapper) -> None:
         target_boxes = target["boxes"].cpu()
         pairwise_iou = generalized_box_iou(pred_boxes, target_boxes)
         iou_values.extend(pairwise_iou.flatten().tolist())
-    
+
     # table of IoU distribution
     iou_bins = [0.0, 0.25, 0.5, 0.75, 1.0]
     iou_hist, _ = np.histogram(iou_values, bins=iou_bins)
     iou_hist = iou_hist / np.sum(iou_hist)  # Normalize to get percentages
-    iou_table_data = {f"{iou_bins[i]:.2f}-{iou_bins[i+1]:.2f}": f"{iou_hist[i]*100:.2f}%" for i in range(len(iou_bins)-1)}
-    print_table(iou_table_data, title="IoU Distribution on Test Set")   
+    iou_table_data = {
+        f"{iou_bins[i]:.2f}-{iou_bins[i+1]:.2f}": f"{iou_hist[i]*100:.2f}%"
+        for i in range(len(iou_bins) - 1)
+    }
+    print_table(iou_table_data, title="IoU Distribution on Test Set")
