@@ -14,9 +14,9 @@ from src.const import PT_DATA_PATH, LOGGER
 def print_table(data: dict, title: str = "Table") -> None:
     table = Table(title=title)
     for key in data.keys():
-        table.add_column(key, justify="center")
-    table.add_row(*[str(value) for value in data.values()])
-    LOGGER.info(table)
+        table.add_column(key, justify="center", header_style="cyan", )
+    table.add_row(*[str(value.item() if isinstance(value, torch.Tensor) else value) for value in data.values()])
+    LOGGER.log_and_print(table)
 
 def view_image_with_boxes_from_name(name: str, split: str = "train") -> None:
     bb_path = PT_DATA_PATH / split / "boxes" / f"{name}.npy"

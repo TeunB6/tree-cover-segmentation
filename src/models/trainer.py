@@ -10,9 +10,10 @@ import matplotlib.pyplot as plt
 from typing import Optional, Callable
 from pathlib import Path
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
+from torchvision.ops import generalized_box_iou
 
 from src.models.faster_rcnn import FasterRCNNWrapper
-from src.utils.misc import GeneralizedBoxIoULoss, detection_collate_fn
+from src.utils.misc import detection_collate_fn
 
 from src.utils.visual import print_table
 
@@ -254,10 +255,8 @@ def model_metrics(test: Dataset, wrapper: FasterRCNNWrapper) -> None:
     for pred, target in zip(predictions, targets):
         pred_boxes = pred["boxes"].cpu()
         target_boxes = target["boxes"].cpu()
-        for pb in pred_boxes:
-            for tb in target_boxes:
-                iou = GeneralizedBoxIoULoss.compute_iou(pb.unsqueeze(0), tb.unsqueeze(0))
-                iou_values.append(iou.item())
+        pairwise_iou = generalized_box_iou(pred_boxes, target_boxes)
+        iou_values.extend(pairwise_iou.flatten().tolist())
     
     # table of IoU distribution
     iou_bins = [0.0, 0.25, 0.5, 0.75, 1.0]

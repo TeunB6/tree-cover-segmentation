@@ -92,10 +92,11 @@ def evaluate_model():
     fasterrcnn.eval()
     
     test = TreeImageDataset(split="test", transforms=get_val_transforms())
-    
+    model_metrics(test, fasterrcnn)
+
     predictions, targets = fasterrcnn.get_predictions(test)
     
-    LOGGER.info(f"Got predictions for {len(predictions)} test samples.")
+    LOGGER.info(f"Got predictions for {len(predictions)}/{len(targets)} test samples.")
     LOGGER.debug(f"Targets example: {targets[0]}")
     
     for idx, (image, targets) in track(enumerate(test), description="Visualizing predictions:", total=len(test)):
@@ -103,8 +104,6 @@ def evaluate_model():
         target_boxes = targets["boxes"]
         view_prediction(image, pred_boxes, target_boxes, save_path=output_dir / f"prediction_{test.get_site_name(idx)}_{idx}.png", show=False)
     
-    # Calculate evaluation metrics (e.g., mAP) here using the predictions and ground truth targets
-    model_metrics(test, fasterrcnn)
 
 
 def main():

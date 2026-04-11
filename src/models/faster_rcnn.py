@@ -130,13 +130,13 @@ class FasterRCNNWrapper:
         self.model.to(DEVICE)
         self.model.eval()
         predictions = []
-        targets = []
+        full_targets = []
         with torch.no_grad():
             for images, targets in track(loader, description="Getting predictions:", total=len(loader)):
                 batch_preds = self.model(images)
                 predictions.extend(batch_preds)
-                targets.extend(targets)
-        return predictions, targets
+                full_targets.extend(targets)
+        return predictions, full_targets
     
     @classmethod
     def load(cls, model_path: str) -> "FasterRCNNWrapper":
