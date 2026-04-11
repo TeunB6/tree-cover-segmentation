@@ -76,7 +76,7 @@ def view_image_with_boxes(
         plt.close(fig)
 
 def view_prediction(image: torch.Tensor, pred_boxes: BoundingBoxes, target_boxes: BoundingBoxes, save_path: Path | None = None, show: bool = True) -> None:
-    # Draw predicted boxes in red and ground truth boxes in green
+    # Draw predicted boxes in red and ground truth boxes in blue
     if image.shape[0] == 4: 
         rgb_image = image[:3, :, :] # Use RGB channels and convert to HWC for plotting
         chm_image = image[3, :, :] # CHM channel
@@ -90,7 +90,7 @@ def view_prediction(image: torch.Tensor, pred_boxes: BoundingBoxes, target_boxes
     rgb_image_with_boxes = draw_bounding_boxes(
         rgb_image_with_boxes,
         boxes=target_boxes,
-        colors="green",
+        colors="blue",
         width=2,
     )
     
