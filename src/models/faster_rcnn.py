@@ -3,6 +3,9 @@ from collections import OrderedDict
 from torchvision.models.detection import (
     FasterRCNN,
 )
+from torch.utils.data import DataLoader, Dataset
+from src.utils.misc import detection_collate_fn
+from rich.progress import track
 
 # Weight enums for pretrained models
 from torchvision.models import resnet50, ResNet50_Weights
@@ -14,7 +17,7 @@ from torchvision.models.detection.backbone_utils import BackboneWithFPN
 from torchvision.models.detection.rpn import AnchorGenerator
 
 from typing import Literal
-from src.const import CHANNEL_MEANS, CHANNEL_STDEVS, LOGGER
+from src.const import CHANNEL_MEANS, CHANNEL_STDEVS, LOGGER, DEVICE
 
 
 class FasterRCNNWrapper:
@@ -116,12 +119,25 @@ class FasterRCNNWrapper:
     def __getattr__(self, name):
         # Delegate attribute access to the underlying model
         try:
-            return self.model.__getattr__(name)
+            return getattr(self.model, name)
         except AttributeError:
             raise AttributeError(
                 f"'FasterRCNNWrapper' object has no attribute '{name}'"
             )
-
+    
+    def get_predictions(self, data: Dataset) -> tuple[list, list]:
+        loader = DataLoader(data, batch_size=16, shuffle=False, collate_fn=detection_collate_fn)
+        self.model.to(DEVICE)
+        self.model.eval()
+        predictions = []
+        targets = []
+        with torch.no_grad():
+            for images, targets in track(loader, description="Getting predictions:", total=len(loader)):
+                batch_preds = self.model(images)
+                predictions.extend(batch_preds)
+                targets.extend(targets)
+        return predictions, targets
+    
     @classmethod
     def load(cls, model_path: str) -> "FasterRCNNWrapper":
         # Load a saved model from the specified path
@@ -132,3 +148,8 @@ class FasterRCNNWrapper:
             torch.load(model_path)
         )  # TODO: test if this works with the wrapper structure
         return wrapper
+
+    def save_model(self, save_path: str) -> None:
+        # Save the model state to the specified path
+        torch.save(self.model.state_dict(), save_path)
+        LOGGER.info(f"Model saved to {save_path}")

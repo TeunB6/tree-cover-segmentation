@@ -3,11 +3,13 @@ import random
 import torch
 import torchvision.transforms.v2 as v2
 import torchvision.transforms.v2.functional as F
+import numpy as np
+from torchvision.tv_tensors import BoundingBoxes
 
+from src.utils.visual import view_image_with_boxes
+from src.const import LOGGER
+from pathlib import Path
 
-# ─────────────────────────────────────────────
-#  Original transform (unchanged)
-# ─────────────────────────────────────────────
 
 class ToTensor(torch.nn.Module):
     """
@@ -28,120 +30,9 @@ class ToTensor(torch.nn.Module):
             )
 
 
-# ─────────────────────────────────────────────
-#  1. Flip and Rotate
-# ─────────────────────────────────────────────
-
-class RandomFlipAndRotate(torch.nn.Module):
-    """
-    Randomly flips (horizontal and/or vertical) and rotates the image.
-
-    Satellite/aerial imagery has no canonical orientation — a forest looks
-    the same from any angle — so aggressive flipping and rotation are safe
-    and effective augmentations.
-
-    Args:
-        p_hflip  (float): probability of horizontal flip.       Default 0.5
-        p_vflip  (float): probability of vertical flip.         Default 0.5
-        degrees  (float): max rotation angle in degrees (±).    Default 90
-    """
-
-    def __init__(self, p_hflip=0.5, p_vflip=0.5, degrees=90):
-        super().__init__()
-        self.p_hflip = p_hflip
-        self.p_vflip = p_vflip
-        self.degrees = degrees
-
-    def forward(self, img, label=None):
-        # Random horizontal flip
-        if random.random() < self.p_hflip:
-            img = F.horizontal_flip(img)
-
-        # Random vertical flip
-        if random.random() < self.p_vflip:
-            img = F.vertical_flip(img)
-
-        # Random rotation between -degrees and +degrees
-        angle = random.uniform(-self.degrees, self.degrees)
-        img = F.rotate(img, angle)
-
-        if label is not None:
-            return img, label
-        return img
-
-
-# ─────────────────────────────────────────────
-#  2. Translations and Shear
-# ─────────────────────────────────────────────
-
-class RandomTranslationShear(torch.nn.Module):
-    """
-    Randomly applies translation and shear to the image.
-
-    Translation shifts the image spatially; shear skews it. Both simulate
-    slight variations in sensor angle and flight path for aerial imagery.
-
-    Args:
-        translate (tuple): max horizontal and vertical shift as a fraction
-                           of image size. E.g. (0.1, 0.1) = up to 10%.
-                           Default (0.1, 0.1)
-        shear     (float): max shear angle in degrees. Default 10
-    """
-
-    def __init__(self, translate=(0.1, 0.1), shear=10):
-        super().__init__()
-        self.translate = translate
-        self.shear = shear
-
-    def forward(self, img, label=None):
-        # v2.RandomAffine handles both translation and shear cleanly
-        transform = v2.RandomAffine(
-            degrees=0,                  # no rotation here (handled separately)
-            translate=self.translate,
-            shear=self.shear,
-        )
-        img = transform(img)
-
-        if label is not None:
-            return img, label
-        return img
-
-
-# ─────────────────────────────────────────────
-#  3. Gaussian Blur (mimic sensor noise)
-# ─────────────────────────────────────────────
-
-class RandomGaussianBlur(torch.nn.Module):
-    """
-    Randomly applies Gaussian blur to simulate sensor noise and atmospheric
-    distortion common in satellite and aerial imagery.
-
-    Args:
-        kernel_size (int):   size of the blur kernel (must be odd). Default 5
-        sigma       (tuple): range of blur strength (min, max).
-                             Default (0.1, 2.0)
-        p           (float): probability of applying the blur. Default 0.5
-    """
-
-    def __init__(self, kernel_size=5, sigma=(0.1, 2.0), p=0.5):
-        super().__init__()
-        self.p = p
-        self.blur = v2.GaussianBlur(kernel_size=kernel_size, sigma=sigma)
-
-    def forward(self, img, label=None):
-        if random.random() < self.p:
-            img = self.blur(img)
-
-        if label is not None:
-            return img, label
-        return img
-
-
-# ─────────────────────────────────────────────
-#  4. Sat-CutMix
-# ─────────────────────────────────────────────
-
-class SatCutMix(torch.nn.Module):
+class SatCutMix(
+    torch.nn.Module
+):  # TODO: take into account the bounding boxes when cutting and pasting
     """
     Satellite CutMix: cuts a random rectangular patch from a second image
     and pastes it onto the first image.
@@ -212,10 +103,6 @@ class SatCutMix(torch.nn.Module):
         return result
 
 
-# ─────────────────────────────────────────────
-#  5. Sat-SlideMix
-# ─────────────────────────────────────────────
-
 class SatSlideMix(torch.nn.Module):
     """
     Satellite SlideMix: rolls (slides) the image along one or both axes so
@@ -239,36 +126,139 @@ class SatSlideMix(torch.nn.Module):
     Output shape: [C, H, W]  — same shape, content is rolled
     """
 
-    def __init__(self, max_shift=0.5, p=0.5, direction="both"):
+    def __init__(self, max_shift=0.5, direction="both"):
         super().__init__()
-        assert direction in ("horizontal", "vertical", "both"), \
-            "direction must be 'horizontal', 'vertical', or 'both'"
+        assert direction in (
+            "horizontal",
+            "vertical",
+            "both",
+            "random",
+        ), "direction must be 'horizontal', 'vertical', or 'both'"
         self.max_shift = max_shift
-        self.p = p
-        self.direction = direction
+        self.direction = (
+            direction
+            if direction != "random"
+            else random.choice(["horizontal", "vertical"])
+        )
 
-    def forward(self, img, label=None):
+    def forward(self, img, label: torch.Tensor | None = None):
         """
         Args:
             img   (Tensor): single image [C, H, W]
             label (optional): passed through unchanged
         """
-        if random.random() > self.p:
-            if label is not None:
-                return img, label
-            return img
-
         assert img.dim() == 3, "SatSlideMix expects a single image: [C, H, W]"
         _, H, W = img.shape
+
+        LOGGER.debug(
+            f"SatSlideMix: label before roll: {label if label is not None and len(label) > 0 else 'N/A'}, type: {type(label) if label is not None else 'N/A'}"
+        )
 
         if self.direction in ("horizontal", "both"):
             shift_w = random.randint(1, int(W * self.max_shift))
             img = torch.roll(img, shifts=shift_w, dims=2)  # dim 2 = width
+            label = self._wrap_bounding_boxes(
+                label, shift_w, W, indexes=[0, 2]
+            )  # adjust x-coords
 
         if self.direction in ("vertical", "both"):
             shift_h = random.randint(1, int(H * self.max_shift))
             img = torch.roll(img, shifts=shift_h, dims=1)  # dim 1 = height
+            if label is not None:
+                label[:, [1, 3]] = (label[:, [1, 3]] + shift_h) % H  # adjust y-coords
+                label = self._wrap_bounding_boxes(
+                    label, shift_h, H, indexes=[1, 3]
+                )  # adjust y-coords
 
+        if label is not None:
+            LOGGER.debug(
+                f"SatSlideMix: label after roll: {label if label is not None  and len(label) > 0 else 'N/A'}, type: {type(label) if label is not None else 'N/A'}"
+            )
+            return img, label
+        return img
+
+    def _wrap_bounding_boxes(
+        self, boxes: torch.Tensor | None, shift: int, dim_size: int, indexes: list[int]
+    ) -> torch.Tensor | None:
+        """Helper function to wrap bounding boxes when rolling. A box is split into two if it goes out of bounds."""
+        if boxes is None or len(boxes) == 0:
+            return boxes
+        boxes_is_tv_tensor = isinstance(boxes, BoundingBoxes)
+        shifted_boxes = boxes.clone()
+        shifted_boxes[:, indexes] = (shifted_boxes[:, indexes] + shift) % dim_size
+
+        # Identify boxes that were wrapped around and create wrapped versions
+        wrong_wrapped = shifted_boxes[:, indexes[0]] > shifted_boxes[:, indexes[1]]
+        wrapped = shifted_boxes[wrong_wrapped].clone()
+
+        # trim out of bounds part from original boxes
+        shifted_boxes[wrong_wrapped, indexes[1]] = dim_size
+
+        # create wrapped part as new boxes
+        wrapped[:, indexes[0]] = 0
+
+        merged = torch.cat([shifted_boxes, wrapped], dim=0)
+
+        # Preserve torchvision BoundingBoxes metadata for downstream transforms.
+        if boxes_is_tv_tensor:
+            return BoundingBoxes(
+                merged,
+                format=boxes.format,
+                canvas_size=boxes.canvas_size,
+                dtype=boxes.dtype,
+                device=boxes.device,
+            )
+
+        return merged
+
+
+class RandomCompose(torch.nn.Module):
+    """
+    Randomly applies one of the given transforms to the image.
+
+    This can be used to add more variety by randomly choosing between
+    different augmentation strategies.
+
+    Args:
+        transforms (list): list of transform modules to choose from.
+    """
+
+    def __init__(self, transforms: list, weights: list = None, debug: bool = False):
+        super().__init__()
+        self.transforms = transforms
+        if weights is not None:
+            assert len(weights) == len(
+                transforms
+            ), "Weights length must match transforms"
+            if not np.isclose(sum(weights), 1.0):  # normalize weights to sum to 1
+                weights = [w / sum(weights) for w in weights]
+            self.weights = weights
+        else:
+            self.weights = [1.0 / len(transforms)] * len(transforms)
+
+        self.debug = debug
+
+    def forward(self, img, label=None):
+        transform = np.random.choice(self.transforms, 1, p=self.weights)[0]
+        out = transform(img, label)
+        if self.debug:
+            view_image_with_boxes(
+                out[0],
+                out[1],
+                save_path=Path("out")
+                / f"debug_random_compose_{transform.__class__.__name__}.png",
+            )
+        return out
+
+
+class IdentityTransform(torch.nn.Module):
+    """
+    A no-op transform that returns the input unchanged.
+
+    Useful as a placeholder or for testing the pipeline without augmentation.
+    """
+
+    def forward(self, img, label=None):
         if label is not None:
             return img, label
         return img
@@ -277,6 +267,7 @@ class SatSlideMix(torch.nn.Module):
 # ─────────────────────────────────────────────
 #  Compose all transforms into a ready-to-use pipeline
 # ─────────────────────────────────────────────
+
 
 def get_train_transforms():
     """
@@ -293,13 +284,35 @@ def get_train_transforms():
             imgs, labels = cutmix(imgs, labels)   # batch-level
             # imgs already had single-image transforms applied in the dataset
     """
-    return v2.Compose([
-        ToTensor(),                                      # convert to float32 tensor
-        RandomFlipAndRotate(p_hflip=0.5, p_vflip=0.5, degrees=90),
-        RandomTranslationShear(translate=(0.1, 0.1), shear=10),
-        RandomGaussianBlur(kernel_size=5, sigma=(0.1, 2.0), p=0.5),
-        SatSlideMix(max_shift=0.5, p=0.5, direction="both"),
-    ])
+    return v2.Compose(
+        [
+            ToTensor(),
+            RandomCompose(
+                [
+                    # Rotations and flips
+                    v2.RandomHorizontalFlip(p=1.0),  # always apply flip when chosen
+                    v2.RandomVerticalFlip(p=1.0),
+                    v2.RandomRotation(degrees=(-45, 45)),
+                    # Shear and translation
+                    v2.RandomAffine(translate=(0.1, 0.1), shear=10, degrees=0),
+                    v2.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0)),
+                    SatSlideMix(max_shift=0.5, direction="random"),
+                    IdentityTransform(),
+                ],
+                weights=[
+                    1, # rotate
+                    1, # hflip
+                    1, # vflip
+                    3, # affine
+                    3, # blur
+                    3, # slidemix 
+                    12, # identity
+                ],
+                debug=False,
+            ),
+            v2.SanitizeBoundingBoxes(labels_getter=lambda x: x[1]),
+        ]
+    )
 
 
 def get_val_transforms():
@@ -307,6 +320,8 @@ def get_val_transforms():
     Returns the validation/inference pipeline — no augmentation, just
     converts to tensor. Keeps validation deterministic and comparable.
     """
-    return v2.Compose([
-        ToTensor(),
-    ])
+    return v2.Compose(
+        [
+            ToTensor(),
+        ]
+    )

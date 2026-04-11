@@ -3,18 +3,19 @@ import torch.nn as nn
 import torch.optim as optim
 import torch
 from rich.progress import track
-from rich.panel import Panel
 import copy
 from src.const import LOGGER, DEVICE
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, Callable
 from pathlib import Path
-from rich.progress import Progress
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 from src.models.faster_rcnn import FasterRCNNWrapper
 from src.utils.misc import GeneralizedBoxIoULoss, detection_collate_fn
+
+from src.utils.visual import print_table
+
 
 # Define plotting style.
 plt.style.use("seaborn-v0_8-dark-palette")
@@ -39,13 +40,10 @@ def train_faster_rcnn(
     wrapper: FasterRCNNWrapper,
     train_data: Dataset,
     val_data: Dataset,
-    test_data: Dataset,
     num_epochs: int = 10,
     optimizer: Callable = optim.AdamW,
     early_stopping: bool = True,
     patience: int = 3,
-    batch_transforms: Optional[Callable] = None,
-    sample_transforms: Optional[Callable] = None,
 ) -> dict:
     """Train a Faster R-CNN model.
 
@@ -65,16 +63,14 @@ def train_faster_rcnn(
     # Move model to device
     model = wrapper.model
     model.to(DEVICE)
+    LOGGER.info(f"Start training: Model moved to {DEVICE} for training.")
 
     # Create data loaders
     train_loader = DataLoader(
-        train_data, batch_size=1, shuffle=True, collate_fn=detection_collate_fn
+        train_data, batch_size=16, shuffle=True, collate_fn=detection_collate_fn
     )
     val_loader = DataLoader(
-        val_data, batch_size=1, shuffle=False, collate_fn=detection_collate_fn
-    )
-    test_loader = DataLoader(
-        test_data, batch_size=16, shuffle=False, collate_fn=detection_collate_fn
+        val_data, batch_size=16, shuffle=False, collate_fn=detection_collate_fn
     )
 
     # Initialize optimizer with lower learning rate for detection tasks
@@ -130,7 +126,6 @@ def train_faster_rcnn(
 
         with torch.no_grad():
             for images, targets in val_loader:
-                LOGGER.info(f"Evaluating batch with {len(images)} images.")
                 predictions = model(images)
 
                 # Update metric
@@ -171,6 +166,10 @@ def train_faster_rcnn(
 
     # Load best model state before returning
     model.load_state_dict(best_model_state)
+    
+    # Final evaluation on val set with best model
+    model_metrics(val_data, wrapper)
+    
     return history
 
 
@@ -220,7 +219,7 @@ def plot_history(
     ax2.set_xlabel("Epochs")
     ax2.set_ylabel("mAP")
     ax2.set_title("Validation mAP Metrics")
-    ax2.legend(loc="best")
+    ax2.legend(loc="best", bbox_to_anchor=(1.05, 1), borderaxespad=0)
     ax2.grid(True)
 
     plt.tight_layout()
@@ -232,12 +231,37 @@ def plot_history(
     if show:
         plt.show()
 
-
-def save_model(model, path: str | Path) -> None:
-    """Save the model.
-
-    Args:
-        path (str): The path to save the model to.
-    """
-    torch.save(model.state_dict(), path)
-    LOGGER.info(f"Model saved to {path}")
+def model_metrics(test: Dataset, wrapper: FasterRCNNWrapper) -> None:
+    # Get outputs from the model on the test set and visualize some predictions
+    output_dir = Path("out") / "predictions"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    predictions, targets = wrapper.get_predictions(test)
+    
+    # mAP
+    map_metric = MeanAveragePrecision(
+        box_format="xyxy", iou_type="bbox", backend="faster_coco_eval"
+    )
+    map_metric = map_metric.to(DEVICE)
+    
+    map_metric.update(predictions, targets)
+    metrics_dict = map_metric.compute()
+    
+    print_table(metrics_dict, title="Test Set Evaluation Metrics")
+    
+    # IoU distribution
+    iou_values = []
+    for pred, target in zip(predictions, targets):
+        pred_boxes = pred["boxes"].cpu()
+        target_boxes = target["boxes"].cpu()
+        for pb in pred_boxes:
+            for tb in target_boxes:
+                iou = GeneralizedBoxIoULoss.compute_iou(pb.unsqueeze(0), tb.unsqueeze(0))
+                iou_values.append(iou.item())
+    
+    # table of IoU distribution
+    iou_bins = [0.0, 0.25, 0.5, 0.75, 1.0]
+    iou_hist, _ = np.histogram(iou_values, bins=iou_bins)
+    iou_hist = iou_hist / np.sum(iou_hist)  # Normalize to get percentages
+    iou_table_data = {f"{iou_bins[i]:.2f}-{iou_bins[i+1]:.2f}": f"{iou_hist[i]*100:.2f}%" for i in range(len(iou_bins)-1)}
+    print_table(iou_table_data, title="IoU Distribution on Test Set")   

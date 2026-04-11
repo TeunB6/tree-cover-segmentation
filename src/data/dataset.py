@@ -9,6 +9,8 @@ from pathlib import Path
 from src.data.setup import SetupNeonTreeData
 from src.const import LOGGER, DEVICE
 from typing import Literal
+from rich.progress import track
+from torchvision.transforms.v2 import functional as F
 
 
 class TreeImageDataset(Dataset):
@@ -54,7 +56,11 @@ class TreeImageDataset(Dataset):
 
         # Set up transforms if provided
         if transforms:
-            self.transform = Compose(transforms)
+            self.transform = (
+                Compose(transforms)
+                if not isinstance(transforms, Compose)
+                else transforms
+            )
         else:
             self.transform = None
 
@@ -111,7 +117,9 @@ class TreeImageDataset(Dataset):
         """
         if not hasattr(self, "_data"):
             self._data = []
-            for img_path in self.paths:
+            for img_path in track(
+                self.paths, description="Loading data:", total=len(self.paths)
+            ):
                 self.data.append(self._load_data_point(img_path))
         return self._data
 
@@ -125,8 +133,18 @@ class TreeImageDataset(Dataset):
 
         image = torch.from_numpy(io.imread(img_path)).to(
             device=self.device
-        )  # Shape: (400, 400, 4)
+        )  # Shape: (400, 400, 4) (in most cases :( )
+        
+        image = image.permute(2, 0, 1)  # Convert to (4, 400, 400)
 
+        # Check shape and pad to (N, 400, 400) if necessary #TODO: Move remaining data validation and cleaning done here to setup 
+        if image.shape[1] != 400 or image.shape[2] != 400:
+            LOGGER.warning(
+                f"Image {img_path.stem} has unexpected shape {image.shape}. Resizing to (400, 400)."
+            )
+            image = F.resize(image, (400, 400))  # Ensure image is 400x400
+
+        
         # Handle NaN values in the image (replace with 0)
         if torch.isnan(image).any():
             LOGGER.warning(
@@ -142,7 +160,6 @@ class TreeImageDataset(Dataset):
             device=self.device
         )  # Shape: (N, 4)
 
-        image = image.permute(2, 0, 1)  # Convert to (4, 400, 400)
 
         if self.transform:
             image, boxes = self.transform(image, boxes)
@@ -167,3 +184,9 @@ class TreeImageDataset(Dataset):
             return self.data[idx]
         else:
             return self._load_data_point(self.paths[idx])
+        
+    def get_site_name(self, idx: int) -> str:
+        """
+        Utility method to get the site name (stem of the filename) for a given index.
+        """
+        return self.paths[idx].stem

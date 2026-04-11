@@ -32,10 +32,12 @@ class Logger:
 
         # Create logger.
         logger = logging.getLogger(name)
+        
+        # Skip if logger already has handlers (already configured)
+        if logger.handlers:
+            return logger
+        
         logger.setLevel(logging.DEBUG)
-
-        # Remove existing handlers to avoid duplicates for UX.
-        logger.handlers.clear()
         logger.propagate = False
 
         # Create formatters.
@@ -44,9 +46,8 @@ class Logger:
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
-        # Main log file with detailed formatting.
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_file = logs_dir / f"{timestamp}.log"
+        log_date = datetime.now().strftime("%Y-%m-%d")
+        log_file = logs_dir / f"{log_date}_session.log"
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(detailed_formatter)

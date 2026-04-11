@@ -2,19 +2,22 @@ from src.utils.download import download_data, cleanup_files
 from src.const import DATA_PATH, NEON_TREE_PATH, LOGGER
 from src.data.setup import SetupNeonTreeData
 from src.data.dataset import TreeImageDataset
-from src.utils.visual import view_image_with_boxes
+from src.data.transforms import get_train_transforms, get_val_transforms
+from src.utils.visual import view_image_with_boxes, view_prediction
 from src.models.faster_rcnn import FasterRCNNWrapper
 import matplotlib.pyplot as plt
 
 from src.utils.cli import cli_menu
+from rich.progress import track
 
 from pathlib import Path
 
 from random import choice
-from time import sleep
+
+from datetime import datetime
 
 # Training
-from src.models.trainer import train_faster_rcnn, plot_history
+from src.models.trainer import train_faster_rcnn, plot_history, model_metrics
 from torch.optim import AdamW
 
 
@@ -30,35 +33,78 @@ def data_inspection():
         plt.close()
 
 
-def train_model():
+def train_model(transforms: bool = True):
     fasterrcnn = FasterRCNNWrapper(num_classes=2, pretrained_backbone=True)
-    train = TreeImageDataset(split="train")
-    test = TreeImageDataset(split="test")
-    val = TreeImageDataset(split="val")
+    train = TreeImageDataset(
+        split="train", transforms=get_train_transforms() if transforms else None
+    )
+    test = TreeImageDataset(
+        split="test", transforms=get_val_transforms() if transforms else None
+    )
+    val = TreeImageDataset(
+        split="val", transforms=get_val_transforms() if transforms else None
+    )
 
     history = train_faster_rcnn(
         wrapper=fasterrcnn,
         train_data=train,
         val_data=val,
         test_data=test,
-        num_epochs=10,
+        num_epochs=1,
         optimizer=AdamW,
         early_stopping=True,
         patience=3,
     )
 
-    plot_history(history, save_path=Path("out") / "training_history.png")
+    time_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    
+    # Plot training history
+    output_dir = Path("out") / "training_history"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    plot_history(history, save_path=output_dir / f"training_history_{time_stamp}.png")
 
     # Save the best model state
+    output_dir = Path("out") / "models"
+    output_dir.mkdir(parents=True, exist_ok=True)
     fasterrcnn.save_model(
-        history["best_model_state"], save_path=Path("out") / "best_fasterrcnn.pth"
+        save_path=output_dir
+        / f"best_fasterrcnn_{"transformed" if transforms else "untransformed"}_{time_stamp}.pth",
     )
-    LOGGER.info(f"Best model saved to {Path('out') / 'best_fasterrcnn.pth'}")
 
 
 def evaluate_model():
     # Get outputs from the model on the test set and visualize some predictions
-    pass
+    time_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_dir = Path("out") / "predictions" / time_stamp
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    
+    # Find most recent model checkpoint
+    model_dir = Path("out") / "models"
+    model_files = sorted(model_dir.glob("best_fasterrcnn_*.pth"), key=lambda x: x.stat().st_mtime, reverse=True)
+    if not model_files:
+        LOGGER.error("No model checkpoints found in 'out/models'. Please train a model first.")
+        return
+    latest_model_path = model_files[0]
+    LOGGER.info(f"Loading model from {latest_model_path}")
+    fasterrcnn = FasterRCNNWrapper.load(latest_model_path)
+    fasterrcnn.eval()
+    
+    test = TreeImageDataset(split="test", transforms=get_val_transforms())
+    
+    predictions, targets = fasterrcnn.get_predictions(test)
+    
+    LOGGER.info(f"Got predictions for {len(predictions)} test samples.")
+    LOGGER.debug(f"Targets example: {targets[0]}")
+    
+    for idx, (image, targets) in track(enumerate(test), description="Visualizing predictions:", total=len(test)):
+        pred_boxes = predictions[idx]["boxes"]
+        target_boxes = targets["boxes"]
+        view_prediction(image, pred_boxes, target_boxes, save_path=output_dir / f"prediction_{test.get_site_name(idx)}_{idx}.png", show=False)
+    
+    # Calculate evaluation metrics (e.g., mAP) here using the predictions and ground truth targets
+    model_metrics(test, fasterrcnn)
 
 
 def main():
@@ -72,13 +118,15 @@ def main():
         "What would you like to do?",
         {
             "Data Inspection": data_inspection,
-            "Train a Faster R-CNN model": train_model,
-            "Evaluate the trained model": lambda: print(
-                "Evaluation not implemented yet."
+            "Train a Faster R-CNN model (transformed)": train_model,
+            "Train a Faster R-CNN model (untransformed)": lambda: train_model(
+                transforms=False
             ),
+            "Evaluate the trained model": evaluate_model,
         },
     )
 
 
 if __name__ == "__main__":
+    LOGGER.info("Starting Single Tree Detection Project")
     main()

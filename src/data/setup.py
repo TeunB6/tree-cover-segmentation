@@ -124,8 +124,6 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
             transforms = Compose(
                 [
                     RandomCrop(IMG_SIZE[0]),
-                    RandomHorizontalFlip(),
-                    RandomVerticalFlip(),
                     SanitizeBoundingBoxes(labels_getter=lambda x: x[1]),
                 ]
             )
