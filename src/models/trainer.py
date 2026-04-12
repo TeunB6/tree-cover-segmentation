@@ -28,7 +28,7 @@ plt.rcParams.update(
         "ytick.labelsize": 14,
         "axes.titlesize": 18,
         "legend.fontsize": 16,
-        "lines.linewidth": 2,
+        "lines.linewidth": 4,
         "text.usetex": False,
         "font.family": "serif",
         "image.cmap": "magma",
@@ -202,8 +202,14 @@ def plot_history(
     # Create x-axis values for train and val metrics
     x_train = np.asarray(range(1, len(history["train_loss"]) + 1))
 
-    # Get all metric keys (everything except train_loss)
-    metric_keys = [k for k in history.keys() if k != "train_loss"]
+    selected_metrics = ["map", "map_small", "map_medium", "map_large"]
+    formatted_metric_names = {
+        "map": "mAP",
+        "map_small": "mAP (small)",
+        "map_medium": "mAP (medium)",
+        "map_large": "mAP (large)",
+    }
+    metric_keys = [k for k in history.keys() if k in selected_metrics]
 
     if not metric_keys:
         LOGGER.warning("No metrics found in history to plot.")
@@ -213,32 +219,35 @@ def plot_history(
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6), layout="constrained")
 
-    # Plot 1: Training loss
+    # Plot 1: Training/Val loss
     ax1.plot(
         x_train,
         history["train_loss"],
         label="Train Loss",
-        color="tab:blue",
-        linewidth=2,
+    )
+    ax1.plot(
+        x_val,
+        1 - np.array(history["val_iou"]),  # Invert IoU to show as "loss"
+        label="Val IoU Loss",
     )
     ax1.set_xlabel("Epochs")
     ax1.set_ylabel("Loss")
     ax1.tick_params(axis="y")
-    ax1.set_title("Training Loss")
+    ax1.set_title("Training vs Validation Loss")
     ax1.grid(True)
+    ax1.legend(loc="upper right", bbox_to_anchor=(1, 1.))
 
     # Plot 2: All validation mAP metrics
     for metric_key in metric_keys:
-        ax2.plot(x_val, history[metric_key], label=metric_key, linewidth=2)
+        ax2.plot(x_val, history[metric_key], label=formatted_metric_names[metric_key])
 
     ax2.set_xlabel("Epochs")
     ax2.set_ylabel("mAP")
     ax2.set_title("Validation mAP Metrics")
-    fig.legend(loc="outside right upper", bbox_to_anchor=(1.05, 1), borderaxespad=0)
+    ax2.legend(loc="upper right", bbox_to_anchor=(1.45, 1))
     ax2.grid(True)
 
     if save_path:
-        # Keep outside-axes elements (e.g., figure-level legend) inside the output image.
         fig.savefig(save_path, bbox_inches="tight", pad_inches=0.2)
         LOGGER.info(f"Training history plot saved to {save_path}")
 
@@ -261,6 +270,10 @@ def model_metrics(test: Dataset, wrapper: FasterRCNNWrapper) -> None:
 
     map_metric.update(predictions, targets)
     metrics_dict = map_metric.compute()
+    
+    # Convert tensor metrics to floats for better readability in the table
+    metrics_dict = {key: value.cpu().item() if isinstance(value, torch.Tensor) else value
+        for key, value in metrics_dict.items()}
 
     print_table(metrics_dict, title="Test Set Evaluation Metrics")
 
@@ -280,4 +293,7 @@ def model_metrics(test: Dataset, wrapper: FasterRCNNWrapper) -> None:
         f"{iou_bins[i]:.2f}-{iou_bins[i+1]:.2f}": f"{iou_hist[i]*100:.2f}%"
         for i in range(len(iou_bins) - 1)
     }
+    
     print_table(iou_table_data, title="IoU Distribution on Test Set")
+
+    return {"map_metrics": metrics_dict, "iou_distribution": iou_table_data}
