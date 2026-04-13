@@ -235,7 +235,7 @@ def plot_history(
     ax1.tick_params(axis="y")
     ax1.set_title("Training vs Validation Loss")
     ax1.grid(True)
-    ax1.legend(loc="upper right", bbox_to_anchor=(1, 1.))
+    ax1.legend(loc="upper right", bbox_to_anchor=(1, 1.0))
 
     # Plot 2: All validation mAP metrics
     for metric_key in metric_keys:
@@ -270,10 +270,12 @@ def model_metrics(test: Dataset, wrapper: FasterRCNNWrapper) -> None:
 
     map_metric.update(predictions, targets)
     metrics_dict = map_metric.compute()
-    
+
     # Convert tensor metrics to floats for better readability in the table
-    metrics_dict = {key: value.cpu().item() if isinstance(value, torch.Tensor) else value
-        for key, value in metrics_dict.items()}
+    metrics_dict = {
+        key: value.cpu().item() if isinstance(value, torch.Tensor) else value
+        for key, value in metrics_dict.items()
+    }
 
     print_table(metrics_dict, title="Test Set Evaluation Metrics")
 
@@ -293,7 +295,7 @@ def model_metrics(test: Dataset, wrapper: FasterRCNNWrapper) -> None:
         f"{iou_bins[i]:.2f}-{iou_bins[i+1]:.2f}": f"{iou_hist[i]*100:.2f}%"
         for i in range(len(iou_bins) - 1)
     }
-    
+
     print_table(iou_table_data, title="IoU Distribution on Test Set")
 
     return {"map_metrics": metrics_dict, "iou_distribution": iou_table_data}

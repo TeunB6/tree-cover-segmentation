@@ -105,7 +105,7 @@ def evaluate_model():
 
     test = TreeImageDataset(split="test", transforms=get_val_transforms())
     metrics = model_metrics(test, fasterrcnn)
-    
+
     # Save metrics to json
     with open(output_dir / "evaluation_metrics.json", "w") as f:
         json.dump(metrics, f, indent=4)
