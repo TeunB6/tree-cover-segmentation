@@ -17,6 +17,8 @@ uv.lock
 *.fls
 *.synctex.gz
 *.fdb_latexmk
+*.bcf
+*.run.xml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
