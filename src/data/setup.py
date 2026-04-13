@@ -19,6 +19,7 @@ import numpy as np
 from skimage import io
 import numpy as np
 import tifffile
+from typing import Literal
 
 
 class SetupNeonTreeData(metaclass=SingletonMeta):
@@ -61,7 +62,9 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
             return self.create_split(split)
 
     def create_split(
-        self, split: str, oversampling_coefficient: int = 3
+        self,
+        split: Literal["train"] | Literal["test"],
+        oversampling_coefficient: int = 3,
     ):  # TODO: Add Hyperspectral data
         """Create a processed split from raw imagery and annotations.
 
@@ -71,7 +74,7 @@ class SetupNeonTreeData(metaclass=SingletonMeta):
         .pt file.
 
         Args:
-            split: Dataset split name, typically "train" or "test".
+            split: Dataset split name, "train" or "test".
             oversampling_coefficient: Factor by which to inflate the dataset size through random cropping. The number of samples generated from each image is proportional to the image size multiplied by this coefficient.
 
         Returns:
