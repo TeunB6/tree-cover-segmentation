@@ -36,7 +36,7 @@ SITES = [
     ("SOAP", "Soaproot Saddle", 37.03, -119.26, "test"),
     ("TALL", "Talladega National Forest", 32.95, -87.39, "test"),
     ("WREF", "Wind River Exp. Forest", 45.82, -121.95, "test"),
-    ("DSNY", "Disney Wilderness Preserve", 28.13, -81.44, "excluded"),
+    ("DSNY", "Disney Wilderness Preserve", 28.13, -81.44, "test"),
     ("ONAQ", "Onaqui-Ault", 40.18, -112.45, "excluded"),
     ("YELL", "Yellowstone", 44.95, -110.54, "excluded"),
 ]
@@ -52,8 +52,8 @@ STYLE = {
 LEGEND_LABELS = {
     "both": "Train + Test (10 sites)",
     "train": "Train only (1 site)",
-    "test": "Test only (10 sites)",
-    "excluded": "Excluded, no CHM (3 sites)",
+    "test": "Test only (11 sites)",
+    "excluded": "Excluded, no CHM (2 sites)",
 }
 
 # ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ us_states = states[states["admin"] == "United States of America"]
 # Build figure with two axes: contiguous US + Alaska inset
 # ---------------------------------------------------------------------------
 
-fig = plt.figure(figsize=(13, 8))
+fig = plt.figure(figsize=(12, 8))
 
 # Main axis: contiguous US
 ax_main = fig.add_axes([0.01, 0.12, 0.88, 0.82])
@@ -209,10 +209,9 @@ ax_main.legend(
 )
 
 ax_main.set_title(
-    "NEON sites in the NeonTreeEvaluation dataset",
-    fontsize=13,
-    fontweight="bold",
-    pad=10,
+    "",
+    fontsize=0,
+    pad=0,
 )
 
 # ---------------------------------------------------------------------------
